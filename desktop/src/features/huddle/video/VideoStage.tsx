@@ -13,9 +13,11 @@ export function VideoStage() {
   if (!visible) return null;
   const screen = video.tiles.find((tile) => tile.track === TRACK_SCREEN);
   const cameras = video.tiles.filter((tile) => tile.track !== TRACK_SCREEN);
+  // Stack above the room's app surface (`z-10`), which spans the same area
+  // above the drawer; below it the stage renders but is fully covered.
   return (
     <div
-      className="pointer-events-auto absolute inset-x-0 top-0 bottom-(--buzz-huddle-drawer-height) z-[3] flex min-h-0 flex-col gap-2 bg-background/80 p-3"
+      className="pointer-events-auto absolute inset-x-0 top-0 bottom-(--buzz-huddle-drawer-height) z-20 flex min-h-0 flex-col gap-2 bg-background/80 p-3"
       data-testid="huddle-video-stage"
     >
       {video.localScreen ? (

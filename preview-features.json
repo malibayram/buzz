@@ -35,7 +35,8 @@
       "id": "huddleVideo",
       "name": "Huddle video",
       "description": "Camera and screen sharing in huddles",
-      "platforms": ["desktop"]
+      "platforms": ["desktop"],
+      "defaultEnabled": true
     }
   ]
 }

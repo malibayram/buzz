@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 import { installFakeCamera } from "../helpers/fakeCamera";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
@@ -60,6 +60,26 @@ async function installFakeVideo(page: import("@playwright/test").Page) {
   });
 }
 
+// `toBeVisible` ignores occlusion, so it passed while the stage rendered
+// underneath the huddle room surface. Assert the element is what a user
+// actually sees at its own center point.
+async function expectOnTop(page: Page, testId: string) {
+  const target = page.getByTestId(testId);
+  await expect(target).toBeVisible();
+  await expect
+    .poll(() =>
+      target.evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        );
+        return hit === el || el.contains(hit);
+      }),
+    )
+    .toBe(true);
+}
+
 test("toggles camera and screen, then drops a remote tile", async ({
   page,
 }) => {
@@ -80,13 +100,13 @@ test("toggles camera and screen, then drops a remote tile", async ({
   await expect(camera).toBeVisible();
   await camera.click();
   await expect(camera).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("huddle-local-camera")).toBeVisible();
+  await expectOnTop(page, "huddle-local-camera");
 
   const screen = page.getByTestId("huddle-screen-toggle");
   await screen.focus();
   await page.keyboard.press("Enter");
   await expect(screen).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("huddle-screen-spotlight")).toBeVisible();
+  await expectOnTop(page, "huddle-screen-spotlight");
   await expect(page.getByTestId("huddle-sharing-indicator")).toBeVisible();
 
   await page.evaluate(() => {
@@ -118,7 +138,7 @@ test("toggles camera and screen, then drops a remote tile", async ({
       }),
     );
   });
-  await expect(page.getByTestId("huddle-video-tile")).toBeVisible();
+  await expectOnTop(page, "huddle-video-tile");
   await page.evaluate(() => {
     (
       window as Window & {
