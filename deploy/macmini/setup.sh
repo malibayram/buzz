@@ -11,6 +11,7 @@ COMPOSE_DIR="${REPO_ROOT}/deploy/compose"
 ENV_FILE="${COMPOSE_DIR}/.env"
 IMAGE="buzz-local:video"
 TUNNEL_NAME="buzz"
+TUNNEL_AGENT_LABEL="com.buzz.tunnel"
 CLOUDFLARED_DIR="${HOME}/.cloudflared"
 
 # Non-secret per-site defaults (committed). Secrets never live here.
@@ -204,24 +205,88 @@ YAML
     echo "warning: DNS route was not created. If ${domain} already has a DNS record," >&2
     echo "         delete it in the Cloudflare dashboard and re-run this step." >&2
   fi
-  # Login-level launchd agent reading ~/.cloudflared/config.yml.
-  if ! launchctl list 2>/dev/null | grep -q com.cloudflare.cloudflared; then
-    cloudflared service install
-  else
-    launchctl kickstart -k "gui/$(id -u)/com.cloudflare.cloudflared" 2>/dev/null || true
-  fi
+  install_tunnel_agent "${config}"
+  wait_for_tunnel
   echo "Tunnel ${TUNNEL_NAME} (${tunnel_id}) → https://${domain}"
+}
+
+# Run the named tunnel explicitly from our own login agent (with its own log
+# file) rather than relying on the stock `cloudflared service install` agent's
+# config discovery; remove the stock agent if present so only one runs.
+install_tunnel_agent() {
+  local config="$1"
+  local uid
+  uid="$(id -u)"
+  if [[ -f "${HOME}/Library/LaunchAgents/com.cloudflare.cloudflared.plist" ]]; then
+    cloudflared service uninstall >/dev/null 2>&1 \
+      || launchctl bootout "gui/${uid}/com.cloudflare.cloudflared" 2>/dev/null \
+      || true
+    rm -f "${HOME}/Library/LaunchAgents/com.cloudflare.cloudflared.plist"
+  fi
+
+  local cloudflared_bin plist log_dir
+  cloudflared_bin="$(command -v cloudflared)"
+  plist="${HOME}/Library/LaunchAgents/${TUNNEL_AGENT_LABEL}.plist"
+  log_dir="${HOME}/Library/Logs"
+  mkdir -p "$(dirname "${plist}")" "${log_dir}"
+  cat >"${plist}" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${TUNNEL_AGENT_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${cloudflared_bin}</string>
+    <string>tunnel</string>
+    <string>--config</string>
+    <string>${config}</string>
+    <string>run</string>
+    <string>${TUNNEL_NAME}</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>${log_dir}/buzz-tunnel.log</string>
+  <key>StandardErrorPath</key><string>${log_dir}/buzz-tunnel.log</string>
+</dict>
+</plist>
+PLIST
+  plutil -lint "${plist}" >/dev/null || die "generated ${plist} is not a valid plist"
+  launchctl bootout "gui/${uid}/${TUNNEL_AGENT_LABEL}" 2>/dev/null || true
+  launchctl bootstrap "gui/${uid}" "${plist}"
+}
+
+wait_for_tunnel() {
+  echo "Waiting for the tunnel to connect…"
+  for _ in $(seq 1 15); do
+    if ! cloudflared tunnel info "${TUNNEL_NAME}" 2>&1 | grep -q "does not have any active connection"; then
+      echo "Tunnel connected."
+      return
+    fi
+    sleep 2
+  done
+  echo "error: tunnel did not connect within 30s. cloudflared needs outbound" >&2
+  echo "       TCP+UDP port 7844 to Cloudflare; look for 'precheck' failures below." >&2
+  echo "       Last log lines:" >&2
+  tail -20 "${HOME}/Library/Logs/buzz-tunnel.log" >&2 || true
+  exit 1
 }
 
 cmd_check() {
   local domain="${1:-${BUZZ_HOSTNAME}}"
   [[ -n "${domain}" ]] || die "Usage: $0 check <hostname> (or set BUZZ_HOSTNAME in site.env)"
   echo "• Local liveness"
-  curl -fsS "http://127.0.0.1:3000/_liveness" && echo
+  curl -fsS "http://127.0.0.1:3000/_liveness" && echo || echo "FAILED: relay is not running (./deploy/macmini/setup.sh start)"
+  echo "• Tunnel connection"
+  cloudflared tunnel info "${TUNNEL_NAME}" 2>&1 | tail -3
   echo "• Public NIP-11 through the tunnel"
   local nip11
-  nip11="$(curl -fsS -H 'Accept: application/nostr+json' "https://${domain}")"
-  echo "${nip11:0:400}"
+  if nip11="$(curl -fsS -H 'Accept: application/nostr+json' "https://${domain}")"; then
+    echo "${nip11:0:400}"
+  else
+    echo "FAILED: 530 means the tunnel is not connected; see ~/Library/Logs/buzz-tunnel.log"
+  fi
   echo "• Public WebSocket upgrade (expect HTTP/1.1 101 or 426, not 404/502)"
   curl -sS -o /dev/null -w '%{http_code}\n' --http1.1 \
     -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
