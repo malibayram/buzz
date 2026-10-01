@@ -394,7 +394,7 @@ cmd_funnel() {
   remove_cloudflare_agents
   cmd_set_host "${host}"
   echo
-  echo "Done. Join from the desktop app with: ${host}"
+  echo "Done. Join from the desktop app with: https://${host}  (include https://)"
 }
 
 case "${1:-help}" in

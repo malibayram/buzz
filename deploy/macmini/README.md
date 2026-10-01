@@ -116,7 +116,7 @@ This step:
 4. Removes any Cloudflare tunnel agent this script installed, points
    the relay at `buzz.<tailnet>.ts.net`, and restarts it.
 
-Join from the desktop app with the printed `….ts.net` hostname. Funnel traffic
+Join from the desktop app with the printed `https://….ts.net` URL. Funnel traffic
 is relayed through Tailscale's servers, so heavy video may be bandwidth-limited.
 Use either `tunnel` or `funnel`, not both. To switch hostnames later, run
 `./deploy/macmini/setup.sh set-host <hostname>`.
@@ -138,7 +138,7 @@ What working looks like:
 
 1. In the Buzz desktop app, open the community switcher and choose **Add
    community → Join an existing community**.
-2. Enter `buzz.magibu.ai` (or `wss://buzz.magibu.ai`).
+2. Enter the full URL **with `https://`**, e.g. `https://buzz.magibu.ai`. On the first-run screen a bare hostname is mistaken for an invite code, and **Next** stays disabled.
 3. Use the same identity whose npub you passed in step 2. You are the owner, so
    you're admitted directly.
 
