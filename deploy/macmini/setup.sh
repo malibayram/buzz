@@ -106,6 +106,9 @@ cmd_prereqs() {
 
 cmd_env() {
   local domain="${1:-}" owner="${2:-}"
+  if [[ "${domain}" == nsec1* || "${owner}" == nsec1* ]]; then
+    die "that is a PRIVATE key (nsec). Never paste it anywhere. Use your PUBLIC key (npub1…), and treat this nsec as exposed: clear it from your shell history."
+  fi
   # `env <owner>` alone: the hostname comes from site.env.
   if [[ -z "${owner}" && ( "${domain}" == npub1* || "${domain}" =~ ^[0-9a-fA-F]{64}$ ) ]]; then
     owner="${domain}"
