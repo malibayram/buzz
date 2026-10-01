@@ -201,7 +201,7 @@ ingress:
     service: http://127.0.0.1:3000
   - service: http_status:404
 YAML
-  cloudflared tunnel ingress validate --config "${config}"
+  cloudflared tunnel --config "${config}" ingress validate
   # Point the proxied CNAME ${domain} at THIS machine's tunnel, replacing a
   # record left by another machine's tunnel (the hostname moves with this step).
   cloudflared tunnel route dns --overwrite-dns "${TUNNEL_NAME}" "${domain}" \
