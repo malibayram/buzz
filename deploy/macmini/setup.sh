@@ -10,7 +10,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 COMPOSE_DIR="${REPO_ROOT}/deploy/compose"
 ENV_FILE="${COMPOSE_DIR}/.env"
 IMAGE="buzz-local:video"
-TUNNEL_NAME="buzz"
+# One tunnel per machine: its credentials file lives only where it was created.
+TUNNEL_NAME="${BUZZ_TUNNEL_NAME:-buzz}"
 TUNNEL_AGENT_LABEL="com.buzz.tunnel"
 CLOUDFLARED_DIR="${HOME}/.cloudflared"
 
@@ -186,6 +187,7 @@ cmd_tunnel() {
   tunnel_id="$(cloudflared tunnel list --output json | python3 -c \
     "import json,sys; print(next(t['id'] for t in json.load(sys.stdin) if t['name']=='${TUNNEL_NAME}'))")"
   [[ -n "${tunnel_id}" ]] || die "could not resolve tunnel id for ${TUNNEL_NAME}"
+  [[ -f "${CLOUDFLARED_DIR}/${tunnel_id}.json" ]] || die "tunnel '${TUNNEL_NAME}' was created on another machine (no ${tunnel_id}.json here). Use a per-machine name, e.g.: BUZZ_TUNNEL_NAME=buzz-\$(hostname -s) $0 tunnel"
 
   local config="${CLOUDFLARED_DIR}/config.yml"
   if [[ -f "${config}" ]] && ! grep -q "${tunnel_id}" "${config}"; then
@@ -200,11 +202,10 @@ ingress:
   - service: http_status:404
 YAML
   cloudflared tunnel ingress validate --config "${config}"
-  # Creates/updates the proxied CNAME ${domain} -> <tunnel-id>.cfargotunnel.com.
-  if ! cloudflared tunnel route dns "${TUNNEL_NAME}" "${domain}"; then
-    echo "warning: DNS route was not created. If ${domain} already has a DNS record," >&2
-    echo "         delete it in the Cloudflare dashboard and re-run this step." >&2
-  fi
+  # Point the proxied CNAME ${domain} at THIS machine's tunnel, replacing a
+  # record left by another machine's tunnel (the hostname moves with this step).
+  cloudflared tunnel route dns --overwrite-dns "${TUNNEL_NAME}" "${domain}" \
+    || die "could not point ${domain} at tunnel ${TUNNEL_NAME}; check the zone in the Cloudflare dashboard"
   install_tunnel_agent "${config}"
   wait_for_tunnel
   echo "Tunnel ${TUNNEL_NAME} (${tunnel_id}) → https://${domain}"
