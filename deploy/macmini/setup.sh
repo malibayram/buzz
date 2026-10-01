@@ -13,6 +13,14 @@ IMAGE="buzz-local:video"
 TUNNEL_NAME="buzz"
 CLOUDFLARED_DIR="${HOME}/.cloudflared"
 
+# Non-secret per-site defaults (committed). Secrets never live here.
+BUZZ_HOSTNAME=""
+BUZZ_OWNER=""
+if [[ -f "${SCRIPT_DIR}/site.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/site.env"
+fi
+
 die() {
   echo "error: $*" >&2
   exit 1
@@ -97,8 +105,16 @@ cmd_prereqs() {
 }
 
 cmd_env() {
-  local domain="${1:?Usage: $0 env <hostname e.g. buzz.example.com> <owner npub-or-hex>}"
-  local owner="${2:?Usage: $0 env <hostname> <owner npub-or-hex>}"
+  local domain="${1:-}" owner="${2:-}"
+  # `env <owner>` alone: the hostname comes from site.env.
+  if [[ -z "${owner}" && ( "${domain}" == npub1* || "${domain}" =~ ^[0-9a-fA-F]{64}$ ) ]]; then
+    owner="${domain}"
+    domain=""
+  fi
+  domain="${domain:-${BUZZ_HOSTNAME}}"
+  owner="${owner:-${BUZZ_OWNER}}"
+  [[ -n "${domain}" ]] || die "Usage: $0 env [hostname] <owner npub-or-hex> (or set BUZZ_HOSTNAME in site.env)"
+  [[ -n "${owner}" ]] || die "Usage: $0 env [hostname] <owner npub-or-hex> (or set BUZZ_OWNER in site.env)"
   [[ "${domain}" != *"://"* ]] || die "pass a bare hostname (buzz.example.com), not a URL"
   if [[ -f "${ENV_FILE}" ]]; then
     die "${ENV_FILE} already exists. Its secrets must stay stable; edit it by hand instead of regenerating."
@@ -152,7 +168,8 @@ cmd_start() {
 }
 
 cmd_tunnel() {
-  local domain="${1:?Usage: $0 tunnel <hostname>}"
+  local domain="${1:-${BUZZ_HOSTNAME}}"
+  [[ -n "${domain}" ]] || die "Usage: $0 tunnel <hostname> (or set BUZZ_HOSTNAME in site.env)"
   need cloudflared "Run: $0 prereqs"
   if [[ ! -f "${CLOUDFLARED_DIR}/cert.pem" ]]; then
     echo "A browser will open: pick the Cloudflare zone that owns ${domain}."
@@ -194,7 +211,8 @@ YAML
 }
 
 cmd_check() {
-  local domain="${1:?Usage: $0 check <hostname>}"
+  local domain="${1:-${BUZZ_HOSTNAME}}"
+  [[ -n "${domain}" ]] || die "Usage: $0 check <hostname> (or set BUZZ_HOSTNAME in site.env)"
   echo "• Local liveness"
   curl -fsS "http://127.0.0.1:3000/_liveness" && echo
   echo "• Public NIP-11 through the tunnel"
@@ -220,11 +238,13 @@ case "${1:-help}" in
 Usage: $0 <step>
 
   prereqs                        Install/check OrbStack (Docker) and cloudflared
-  env <hostname> <owner>         Generate deploy/compose/.env (owner = your npub or hex pubkey)
+  env [hostname] <owner>         Generate deploy/compose/.env (owner = your npub or hex pubkey)
   build                          Build the relay image from this checkout (${IMAGE})
   start                          Start Postgres, Redis, MinIO and the relay
-  tunnel <hostname>              Create the Cloudflare tunnel + DNS and run it at login
-  check <hostname>               Verify the relay locally and through the tunnel
+  tunnel [hostname]              Create the Cloudflare tunnel + DNS and run it at login
+  check [hostname]               Verify the relay locally and through the tunnel
+
+Omitted hostname/owner default to site.env (hostname: ${BUZZ_HOSTNAME:-unset}).
 
 Day-2: ../compose/run.sh logs | status | restart | add-member <npub>
 MSG

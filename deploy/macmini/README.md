@@ -1,12 +1,12 @@
 # Buzz on a Mac mini behind a Cloudflare Tunnel
 
 Runs the relay from this checkout, including the huddle video changes, on a Mac
-mini. It is published as `https://<your-hostname>` through a Cloudflare named
+mini. It is published as `https://buzz.magibu.ai` through a Cloudflare named
 tunnel. No router ports are opened: the relay listens on `127.0.0.1:3000` only,
 and `cloudflared` is the sole public ingress.
 
 ```
-Desktop/mobile ──wss://buzz.example.com──▶ Cloudflare edge ──tunnel──▶ cloudflared (Mac mini) ──▶ 127.0.0.1:3000 relay
+Desktop/mobile ──wss://buzz.magibu.ai──▶ Cloudflare edge ──tunnel──▶ cloudflared (Mac mini) ──▶ 127.0.0.1:3000 relay
                                                                                                   ├─ Postgres
                                                                                                   ├─ Redis
                                                                                                   └─ MinIO (media)
@@ -48,17 +48,20 @@ Login Items**, make sure OrbStack starts at login.
 ## 2. Generate the relay config
 
 You need two things:
-- **Hostname:** the public name you want, e.g. `buzz.example.com`. It must be
-  in a domain managed by Cloudflare, and it must never change, because the relay
-  binds your community to it.
+- **Hostname:** `buzz.magibu.ai`, set as the default in
+  [`site.env`](site.env), so you can leave it out of every step. It must
+  stay fixed, because the relay binds your community to it.
 - **Owner key:** your identity from the desktop app. Open **Settings →
   Profile**, expand the identity details, and copy **Public key**. The copy
   button gives `npub1…`; the 64-character hex form is accepted too. This key
   becomes the relay owner.
 
 ```bash
-./deploy/macmini/setup.sh env buzz.example.com npub1yourkey…
+./deploy/macmini/setup.sh env npub1yourkey…
 ```
+
+To skip the argument, put your npub in `BUZZ_OWNER` in `site.env`. Public keys
+aren't secret.
 
 This writes `deploy/compose/.env` (mode 600) with fresh secrets. **Back it up**
 (1Password, etc.). Losing `BUZZ_RELAY_PRIVATE_KEY` makes membership history
@@ -78,10 +81,10 @@ your key the owner.
 ## 4. Create the tunnel
 
 ```bash
-./deploy/macmini/setup.sh tunnel buzz.example.com
+./deploy/macmini/setup.sh tunnel
 ```
 
-1. A browser opens. Pick the zone (domain) that the hostname belongs to.
+1. A browser opens. Log in to Cloudflare and pick the **magibu.ai** zone.
 2. The script creates a tunnel named `buzz`, writes `~/.cloudflared/config.yml`
    pointing at `http://127.0.0.1:3000`, and adds the DNS record.
 3. It installs `cloudflared` as a login service.
@@ -97,7 +100,7 @@ automatic sleeping**.
 ## 5. Verify
 
 ```bash
-./deploy/macmini/setup.sh check buzz.example.com
+./deploy/macmini/setup.sh check
 ```
 
 What working looks like:
@@ -111,7 +114,7 @@ What working looks like:
 
 1. In the Buzz desktop app, open the community switcher and choose **Add
    community → Join an existing community**.
-2. Enter `buzz.example.com` (or `wss://buzz.example.com`).
+2. Enter `buzz.magibu.ai` (or `wss://buzz.magibu.ai`).
 3. Use the same identity whose npub you passed in step 2. You are the owner, so
    you're admitted directly.
 
