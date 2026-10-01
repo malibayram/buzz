@@ -141,6 +141,15 @@ secrets.existingSecret, use that. Otherwise use the chart-managed one.
 {{- end -}}
 {{- end -}}
 
+{{/* Video stays available on every replica. Non-owner pods reject the socket. */}}
+{{- define "buzz.huddleVideoAvailable" -}}
+{{- if kindIs "invalid" .Values.relay.huddleVideoAvailable -}}
+true
+{{- else -}}
+{{- .Values.relay.huddleVideoAvailable -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Effective S3 endpoint: explicit s3.endpoint wins, else bundled MinIO. */}}
 {{- define "buzz.s3Endpoint" -}}
 {{- if .Values.s3.endpoint -}}

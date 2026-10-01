@@ -28,10 +28,11 @@ void main() {
       );
     });
 
-    test('decodes peer prefix, v2 header, and Opus payload', () {
+    test('decodes peer and epoch prefix, header, and Opus payload', () {
       final frame = HuddleWireV2.decodeRelayFrame(
         Uint8List.fromList([
           0x07,
+          0x09,
           0x12,
           0x34,
           0x01,
@@ -46,7 +47,7 @@ void main() {
       );
 
       expect(frame.peerIndex, 7);
-      expect(frame.epoch, 0);
+      expect(frame.epoch, 9);
       expect(frame.header.sequence, 0x1234);
       expect(frame.header.timestamp48k, 0x01020304);
       expect(frame.header.levelDbov, -42);
@@ -116,7 +117,7 @@ void main() {
           .toList();
 
       expect(auth['type'], 'auth');
-      expect(auth['protocol_version'], 2);
+      expect(auth['protocol_version'], 4);
       expect(auth['parent_channel_id'], _parentChannelId);
       expect(event['kind'], 22242);
       expect(tags[0], ['relay', 'wss://buzz.example']);
@@ -124,6 +125,10 @@ void main() {
       expect(
         parameters.audioWebSocketUri.toString(),
         'wss://buzz.example/huddle/$_ephemeralChannelId/audio',
+      );
+      expect(
+        parameters.videoWebSocketUri.toString(),
+        'wss://buzz.example/huddle/$_ephemeralChannelId/video',
       );
       expect(
         tags.any((tag) => tag.length > 1 && tag[1].contains('/huddle/')),

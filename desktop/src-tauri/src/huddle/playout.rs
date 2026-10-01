@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 use super::human_floor::HumanFloor;
 use super::jitter::{PeerJitterBuffer, SAMPLE_RATE_HZ};
 use super::relay_api::{WsStream, REMOTE_SPEECH_THRESHOLD};
-use super::wire::{parse_relay_frame, FLAG_DTX};
+use super::wire::FLAG_DTX;
 
 /// Speaker-tick window for emitting `huddle-active-speakers`. Active set is
 /// cleared each tick — peers that didn't send a frame in the last window are
@@ -283,6 +283,7 @@ pub(crate) async fn run_playout_recv_loop(
     remote_stt_pipeline: Arc<std::sync::Mutex<Option<std::sync::Weak<super::stt::SttPipeline>>>>,
     agent_pubkeys: Arc<std::sync::Mutex<Vec<String>>>,
     human_floor: HumanFloor,
+    protocol: u8,
 ) {
     use rodio::buffer::SamplesBuffer;
     use std::num::NonZero;
@@ -429,19 +430,21 @@ pub(crate) async fn run_playout_recv_loop(
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(WsMsg::Binary(data))) => {
-                        // Wire shape (v2): [peer_index: u8][header: 8 bytes][opus payload...]
-                        // The minimum size is 1 (peer index) + 8 (header) + ≥1 Opus byte.
-                        let Some((peer_idx, header, opus_bytes)) = parse_relay_frame(&data) else {
+                        // v2: [peer_index][header][opus]. v3/v4 add the epoch.
+                        let Some((peer_idx, media_epoch, header, opus_bytes)) =
+                            super::wire::parse_versioned_relay_frame(&data, protocol)
+                        else {
                             eprintln!(
-                                "buzz-desktop: dropping malformed v2 audio relay frame ({} bytes)",
+                                "buzz-desktop: dropping malformed audio relay frame ({} bytes)",
                                 data.len(),
                             );
                             continue;
                         };
-                        // Protocol v2 has no media epoch. Drop frames for slots
-                        // absent from the control roster; delayed frames after
-                        // an index is reassigned cannot be fenced until v3.
-                        if !is_current_occupant(peer_idx, &index_to_epoch) {
+                        if let Some(epoch) = media_epoch {
+                            if index_to_epoch.get(&peer_idx) != Some(&epoch) {
+                                continue;
+                            }
+                        } else if !is_current_occupant(peer_idx, &index_to_epoch) {
                             continue;
                         }
                         // Suppress only an agent stream synthesized and

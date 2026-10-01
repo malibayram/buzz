@@ -2,6 +2,8 @@ import * as React from "react";
 import { AppHuddleBar } from "@/app/AppHuddleBar";
 import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
 import { HuddleProvider, useHuddle } from "@/features/huddle";
+import { HuddleVideoProvider } from "@/features/huddle/video/useHuddleVideo";
+import { VideoStage } from "@/features/huddle/video/VideoStage";
 import { HUDDLE_SHORTCUT_EVENT } from "@/shared/lib/keyboard-shortcuts";
 import { RemindMeLaterProvider } from "@/features/reminders/ui/RemindMeLaterProvider";
 import { cn } from "@/shared/lib/cn";
@@ -92,13 +94,16 @@ export function AppHuddleShell({
               {children}
             </div>
             {isRoom || !isCompanionOpen ? (
-              <div className="buzz-huddle-drawer-slot absolute inset-x-0 bottom-0 z-[2] h-(--buzz-huddle-drawer-height)">
-                <AppHuddleBar
-                  mode={isRoom ? "room" : "main"}
-                  onOpenHuddleWindow={isRoom ? undefined : onCompanionOpen}
-                  onVisibilityChange={onVisibilityChange}
-                />
-              </div>
+              <HuddleVideoProvider>
+                {isRoom ? <VideoStage /> : null}
+                <div className="buzz-huddle-drawer-slot absolute inset-x-0 bottom-0 z-[2] h-(--buzz-huddle-drawer-height)">
+                  <AppHuddleBar
+                    mode={isRoom ? "room" : "main"}
+                    onOpenHuddleWindow={isRoom ? undefined : onCompanionOpen}
+                    onVisibilityChange={onVisibilityChange}
+                  />
+                </div>
+              </HuddleVideoProvider>
             ) : null}
           </div>
         </RemindMeLaterProvider>

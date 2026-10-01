@@ -807,10 +807,9 @@ final class HuddleTransport implements HuddleTransportClient {
     }
     try {
       final frame = HuddleWireV2.decodeRelayFrame(bytes);
-      // The authoritative control roster owns the routing table. Protocol v2
-      // carries only the peer index, so packets are accepted only while that
-      // index is currently present. V3's stricter occupancy-epoch fence is not
-      // available in this compatibility build.
+      // The control roster owns the routing table. v4 media carries the
+      // occupancy epoch, so a reused peer index drops the previous occupant's
+      // delayed frames.
       if (!_isCurrentOccupant(frame.peerIndex, frame.epoch)) return;
       if (_audioIngress.length == _audioIngressCapacity) {
         _audioIngress.removeFirst();
@@ -828,10 +827,11 @@ final class HuddleTransport implements HuddleTransportClient {
     }
   }
 
-  /// Whether `peerIndex` is currently occupied. Protocol v2 has no media epoch,
-  /// so the control-plane roster is the strongest routing boundary available.
-  bool _isCurrentOccupant(int peerIndex, int _) =>
-      _state.peers.containsKey(peerIndex);
+  /// Whether `peerIndex` is the occupant that signed this media epoch.
+  bool _isCurrentOccupant(int peerIndex, int epoch) {
+    final peer = _state.peers[peerIndex];
+    return peer != null && peer.epoch == epoch;
+  }
 
   void _purgeAudioIngress(Set<int> peerIndices) {
     if (peerIndices.isEmpty || _audioIngress.isEmpty) return;

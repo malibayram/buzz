@@ -731,6 +731,7 @@ class _MobileHuddleCallPage extends ConsumerWidget {
                     ),
                   ),
                 ),
+                if (connected) const HuddleVideoStage(),
                 if (connected)
                   _HuddleCallControls(
                     isMuted: session.isMuted,

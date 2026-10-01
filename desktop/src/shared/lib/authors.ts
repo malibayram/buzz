@@ -63,6 +63,10 @@ export function resolveEventAuthorPubkey(input: {
   } = input;
 
   const signerPubkey = normalizePubkey(event.pubkey);
+  const speakerPubkey = getTaggedPubkey(event.tags, "speaker");
+  if (speakerPubkey) {
+    return speakerPubkey;
+  }
   const normalizedRelaySelf = normalizeValidPubkey(relaySelfPubkey);
 
   // `actor` and author-attributing `p` tags are delegated authorship claims.

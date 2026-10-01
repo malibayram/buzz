@@ -26,6 +26,10 @@
 		4A71C0132F40A00100A17E01 /* NativeMessageActionSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C0142F40A00100A17E01 /* NativeMessageActionSurface.swift */; };
 		4A71C0152F40B00100A17E01 /* HuddleMediaPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C0162F40B00100A17E01 /* HuddleMediaPlugin.swift */; };
 		4A71C0172F40C00100A17E01 /* HuddleAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C0182F40C00100A17E01 /* HuddleAudioEngine.swift */; };
+		4A71C0252F41300100A17E01 /* HuddleVideoPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C0262F41300100A17E01 /* HuddleVideoPlugin.swift */; };
+		4A71C0272F41400100A17E01 /* HuddleVideoCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C0282F41400100A17E01 /* HuddleVideoCapture.swift */; };
+		4A71C0292F41500100A17E01 /* HuddleVideoDecode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C02A2F41500100A17E01 /* HuddleVideoDecode.swift */; };
+		4A71C02B2F41600100A17E01 /* HuddleVideoAnnex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C02C2F41600100A17E01 /* HuddleVideoAnnex.swift */; };
 		4A71C0192F40D00100A17E01 /* NativeProfileTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C01A2F40D00100A17E01 /* NativeProfileTextEditor.swift */; };
 		4A71C01B2F40E00100A17E01 /* NativeSkinToneControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C01C2F40E00100A17E01 /* NativeSkinToneControl.swift */; };
 		4A71C01D2F40F00100A17E01 /* ThemePaginationGlassControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A71C01E2F40F00100A17E01 /* ThemePaginationGlassControl.swift */; };
@@ -105,6 +109,10 @@
 		4A71C0142F40A00100A17E01 /* NativeMessageActionSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMessageActionSurface.swift; sourceTree = "<group>"; };
 		4A71C0162F40B00100A17E01 /* HuddleMediaPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuddleMediaPlugin.swift; sourceTree = "<group>"; };
 		4A71C0182F40C00100A17E01 /* HuddleAudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuddleAudioEngine.swift; sourceTree = "<group>"; };
+		4A71C0262F41300100A17E01 /* HuddleVideoPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuddleVideoPlugin.swift; sourceTree = "<group>"; };
+		4A71C0282F41400100A17E01 /* HuddleVideoCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuddleVideoCapture.swift; sourceTree = "<group>"; };
+		4A71C02A2F41500100A17E01 /* HuddleVideoDecode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuddleVideoDecode.swift; sourceTree = "<group>"; };
+		4A71C02C2F41600100A17E01 /* HuddleVideoAnnex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuddleVideoAnnex.swift; sourceTree = "<group>"; };
 		4A71C01A2F40D00100A17E01 /* NativeProfileTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeProfileTextEditor.swift; sourceTree = "<group>"; };
 		4A71C01C2F40E00100A17E01 /* NativeSkinToneControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSkinToneControl.swift; sourceTree = "<group>"; };
 		4A71C01E2F40F00100A17E01 /* ThemePaginationGlassControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePaginationGlassControl.swift; sourceTree = "<group>"; };
@@ -262,6 +270,10 @@
 				4A71C0142F40A00100A17E01 /* NativeMessageActionSurface.swift */,
 				4A71C0162F40B00100A17E01 /* HuddleMediaPlugin.swift */,
 				4A71C0182F40C00100A17E01 /* HuddleAudioEngine.swift */,
+				4A71C0262F41300100A17E01 /* HuddleVideoPlugin.swift */,
+				4A71C0282F41400100A17E01 /* HuddleVideoCapture.swift */,
+				4A71C02A2F41500100A17E01 /* HuddleVideoDecode.swift */,
+				4A71C02C2F41600100A17E01 /* HuddleVideoAnnex.swift */,
 				4A71C01A2F40D00100A17E01 /* NativeProfileTextEditor.swift */,
 				4A71C01C2F40E00100A17E01 /* NativeSkinToneControl.swift */,
 				4A71C01E2F40F00100A17E01 /* ThemePaginationGlassControl.swift */,
@@ -589,6 +601,10 @@
 				4A71C0132F40A00100A17E01 /* NativeMessageActionSurface.swift in Sources */,
 				4A71C0152F40B00100A17E01 /* HuddleMediaPlugin.swift in Sources */,
 				4A71C0172F40C00100A17E01 /* HuddleAudioEngine.swift in Sources */,
+				4A71C0252F41300100A17E01 /* HuddleVideoPlugin.swift in Sources */,
+				4A71C0272F41400100A17E01 /* HuddleVideoCapture.swift in Sources */,
+				4A71C0292F41500100A17E01 /* HuddleVideoDecode.swift in Sources */,
+				4A71C02B2F41600100A17E01 /* HuddleVideoAnnex.swift in Sources */,
 				4A71C0192F40D00100A17E01 /* NativeProfileTextEditor.swift in Sources */,
 				4A71C01B2F40E00100A17E01 /* NativeSkinToneControl.swift in Sources */,
 				4A71C01D2F40F00100A17E01 /* ThemePaginationGlassControl.swift in Sources */,

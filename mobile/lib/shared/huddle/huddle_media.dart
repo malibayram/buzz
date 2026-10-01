@@ -394,13 +394,15 @@ final class MethodChannelHuddleMedia implements HuddleMedia {
       ),
     );
     try {
-      final result = await _channel
-          .invokeMapMethod<dynamic, dynamic>('prepare', {
-            'protocolVersion': HuddleWireV2.protocolVersion,
-            'sampleRateHz': HuddleWireV2.sampleRateHz,
-            'channels': HuddleWireV2.channels,
-            'frameSamples': HuddleWireV2.frameSamples,
-          });
+      final result = await _channel.invokeMapMethod<dynamic, dynamic>(
+        'prepare',
+        {
+          'protocolVersion': HuddleWireV2.protocolVersion,
+          'sampleRateHz': HuddleWireV2.sampleRateHz,
+          'channels': HuddleWireV2.channels,
+          'frameSamples': HuddleWireV2.frameSamples,
+        },
+      );
       if (result?['audioSessionPrepared'] != true) {
         throw const HuddleMediaError(
           code: HuddleMediaErrorCode.platformFailure,

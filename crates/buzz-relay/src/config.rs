@@ -230,6 +230,11 @@ pub struct Config {
     /// service lands.
     pub huddle_audio_available: bool,
 
+    /// Whether this pod serves huddle video. Default true, including
+    /// multi-replica deployments: a non-owner pod rejects the video socket
+    /// itself instead of turning the feature off for the whole release.
+    pub huddle_video_available: bool,
+
     /// Inter-relay mesh configuration (`BUZZ_MESH`, `BUZZ_MESH_BIND_ADDR`).
     /// Opt-in: mesh forms only when `BUZZ_MESH=on` is explicit. The default
     /// (absent/off) is exact single-instance behavior — no bind, no Redis
@@ -742,6 +747,9 @@ impl Config {
         // Defaults true → single-pod (N=1) keeps today's huddle behavior. A
         // horizontally-scaled deployment sets this false; see the field doc.
         let huddle_audio_available = std::env::var("BUZZ_HUDDLE_AUDIO_AVAILABLE")
+            .map(|v| !(v == "false" || v == "0"))
+            .unwrap_or(true);
+        let huddle_video_available = std::env::var("BUZZ_HUDDLE_VIDEO_AVAILABLE")
             .map(|v| !(v == "false" || v == "0"))
             .unwrap_or(true);
 
@@ -1360,6 +1368,7 @@ impl Config {
             pubkey_allowlist_enabled,
             require_relay_membership,
             huddle_audio_available,
+            huddle_video_available,
             mesh,
             mesh_demo_echo,
             relay_owner_pubkey,
@@ -1563,6 +1572,10 @@ mod tests {
         assert!(
             config.huddle_audio_available,
             "huddle_audio_available should default to true so single-pod (N=1) keeps today's huddle behavior"
+        );
+        assert!(
+            config.huddle_video_available,
+            "huddle video stays available unless the operator turns it off"
         );
     }
 
@@ -2656,6 +2669,15 @@ mod tests {
             !config.huddle_audio_available,
             "BUZZ_HUDDLE_AUDIO_AVAILABLE=false must disable huddle audio (multi-pod deployments)"
         );
+    }
+
+    #[test]
+    fn huddle_video_available_can_be_disabled() {
+        let _guards = env_guards();
+        std::env::set_var("BUZZ_HUDDLE_VIDEO_AVAILABLE", "false");
+        let config = Config::from_env().expect("config");
+        std::env::remove_var("BUZZ_HUDDLE_VIDEO_AVAILABLE");
+        assert!(!config.huddle_video_available);
     }
 
     #[test]

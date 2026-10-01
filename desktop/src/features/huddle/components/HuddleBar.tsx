@@ -31,6 +31,7 @@ import { useHuddle, useHuddleLevels } from "../HuddleContext";
 import { useHuddleParticipantRoster } from "../hooks/useHuddleParticipantRoster";
 import { AddAgentDialog, type AgentAddResult } from "./AddAgentDialog";
 import type { HuddleAgentVoiceSettings } from "./AgentVoiceMenu";
+import { VideoControls } from "../video/VideoControls";
 import { MicControls, SpeakerControls } from "./MicControls";
 import { HuddleParticipantsControl } from "./ParticipantList";
 import { truncateNpub } from "@/shared/lib/pubkey";
@@ -659,6 +660,7 @@ export function HuddleBar({
         />
 
         <div className="flex shrink-0 items-center gap-2">
+          <VideoControls />
           <MicControls
             isMuted={isMuted}
             onToggleMute={toggleMute}

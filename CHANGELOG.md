@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Huddle video and screen share on a built-in WebSocket SFU (`GET /huddle/{channel_id}/video`), with protocol v4 pinning the audio room. Desktop camera and screen share stay behind the `huddleVideo` preview flag. Mobile speaks v4 and can send one camera layer.
+- A scribe (`buzz-voice-agent`) posts speaker-tagged transcripts, and the ACP harness joins huddle audio and speaks replies when `VOICE_TTS_URL` is set. Desktop local speech stays until that loop is verified live.
+
 ## v0.5.26
 
 ### Desktop and shared changes

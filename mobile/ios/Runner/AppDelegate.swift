@@ -42,6 +42,7 @@ import os.log
   private var nativeProfileTextEditorCoordinator: NativeProfileTextEditorCoordinator?
   private var nativeMessageActionSurfaceSupportChannel: FlutterMethodChannel?
   private var huddleMediaPlugin: HuddleMediaPlugin?
+  private var huddleVideoPlugin: HuddleVideoPlugin?
 
   override func application(
     _ application: UIApplication,
@@ -57,6 +58,7 @@ import os.log
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let messenger = engineBridge.applicationRegistrar.messenger()
     huddleMediaPlugin = HuddleMediaPlugin(messenger: messenger)
+    huddleVideoPlugin = HuddleVideoPlugin(registrar: engineBridge.applicationRegistrar)
     mediaUploadChannel = FlutterMethodChannel(
       name: "buzz/media_upload",
       binaryMessenger: messenger

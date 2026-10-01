@@ -49,7 +49,7 @@ void main() {
       expect(media.state.phase, HuddleMediaPhase.prepared);
       final prepare = calls.singleWhere((call) => call.method == 'prepare');
       expect(prepare.arguments, {
-        'protocolVersion': 2,
+        'protocolVersion': 4,
         'sampleRateHz': 48000,
         'channels': 1,
         'frameSamples': 960,

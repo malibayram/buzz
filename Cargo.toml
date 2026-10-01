@@ -18,6 +18,8 @@ members = [
     "crates/buzz-admin",
     "crates/buzz-deletion",
     "crates/buzz-feature-flags",
+    "crates/buzz-huddle-client",
+    "crates/buzz-voice-agent",
     "crates/buzz-workflow",
     "crates/buzz-media",
     "crates/buzz-cli",

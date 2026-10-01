@@ -635,7 +635,9 @@ Real-time voice lives inside `buzz-relay` (`src/audio/`), not a separate crate. 
 
 **Lifecycle events:** the relay emits Nostr events for participant joined / left and huddle ended; the desktop client emits huddle started and guidelines. When the last peer leaves, the room ends and the channel archives atomically.
 
-**Not yet built:** recording and per-track publishing (the corresponding kinds are reserved, no producer exists).
+**Video:** `GET /huddle/{channel_id}/video` is a codec-opaque SFU on the same room. Protocol v4 pins the room; v4 audio frames match v3 (`peer_index` plus occupancy `epoch`). The video parser cap is 512 KB. Each subscriber has its own media queue (32 frames, 2 MB, drop-on-full) separate from audio and from the control queue, which disconnects on overflow. Tracks clear when a peer unpublishes, closes video, leaves audio, reuses an epoch, or the room ends. A mesh pod that does not own the room rejects the video socket with `huddle_video_unavailable_on_mesh`. `BUZZ_HUDDLE_VIDEO_AVAILABLE` defaults on, including multi-replica. See [NIP-HV](docs/nips/NIP-HV.md).
+
+**Not yet built:** recording (the corresponding kinds are reserved, no producer exists).
 
 ---
 
@@ -912,6 +914,6 @@ These are verified gaps in the current implementation — not design aspirations
 | 1 | **No sqlx offline query cache** | Uses `sqlx::query()` (runtime) not `sqlx::query!()` (compile-time). No `.sqlx/` directory. Queries are not validated at compile time. |
 | 2 | **No rate limiting implementation** | `RateLimiter` trait exists in `buzz-auth`. Only implementation is `AlwaysAllowRateLimiter` (test stub, gated behind `#[cfg(any(test, feature = "test-utils"))]`). `RateLimitConfig` defines 4 tiers (human, agent-standard, agent-elevated, agent-platform) but none are enforced. |
 | 3 | **No dedicated typing REST endpoint** | Typing indicators (kind 20002) are delivered via both local fan-out and Redis pub/sub (cross-node). There is no REST endpoint to query current typers — `/api/presence` returns online/away status only, not typing state. |
-| 4 | **Huddle recording/tracks not built** | Voice, room lifecycle, and join/leave/end events are wired (see Huddle Audio above). Recording and per-track publishing have reserved kinds but no producer yet. |
+| 4 | **Huddle recording not built** | Voice, camera, screen share, and room lifecycle are wired (see Huddle Audio above). Recording kinds are reserved and have no producer yet. Video is not forwarded across mesh pods that do not own the room. |
 | 5 | **Approval gates not wired end-to-end** | The executor returns `StepResult::Suspended` and the relay has grant/deny API endpoints with DB CRUD, but the engine intercepts before creating `WaitingApproval` rows — runs that hit an approval gate are marked as Failed (🚧 WF-08). |
 | 6 | **Workflow actions partially stubbed** | The `send_dm` and `set_channel_topic` workflow actions are in the schema but return `NotImplemented` — a run that reaches one fails at execution (🚧 WF-07). |

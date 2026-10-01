@@ -3,6 +3,9 @@
 mod git;
 #[cfg(all(test, unix))]
 mod git_runtime_tests;
+mod huddle_speech;
+mod huddle_tts;
+mod huddle_voice;
 
 mod acp;
 mod config;
@@ -2574,6 +2577,8 @@ async fn tokio_main() -> Result<()> {
         return setup_mode::run_setup_listener(config, payload).await;
     }
 
+    huddle_speech::spawn(config.relay_url.clone(), config.keys.clone());
+
     // Register termination before creating temporary key material or spawning
     // adapters. During startup cancellation drops the pool and key guard; once
     // ready, the existing main-loop shutdown drains active work first.
@@ -4685,6 +4690,7 @@ fn failure_notice_thread_tags(
             root_event_id: Some(target.clone()),
             parent_event_id: Some(target),
             mentioned_pubkeys: tags.mentioned_pubkeys,
+            speaker_pubkey: tags.speaker_pubkey,
         },
         _ => tags,
     }

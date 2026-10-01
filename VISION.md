@@ -105,12 +105,13 @@ One model. TLS in transit. At-rest encryption delegated to the storage layer (e.
 
 ## Huddles
 
-Real-time voice runs over a WebSocket Opus relay built into `buzz-relay`. Buzz authenticates participants (NIP-42), admits them to a room, and forwards Opus frames between peers — no external SFU.
+Real-time voice, camera, and screen share run over WebSockets built into `buzz-relay`. Buzz authenticates participants (NIP-42), admits them to a room, and forwards media between peers — no external SFU. Audio and video use separate sockets. The video socket only binds a peer the audio room has already admitted.
 
-- Agents join the same audio relay as humans — they bring their own STT/TTS
+- Agents join the same audio relay as humans. A scribe transcribes speech and a harness speaks the agent's reply; desktop clients still carry a local speech path until that loop is verified live
 - Huddle lifecycle flows as Nostr events: started, joined, left, ended
+- Camera and screen share are H.264 on the video socket. A non-owner mesh pod refuses video instead of forwarding it
 
-Voice, room lifecycle, and lifecycle events are wired. Recording and per-track publishing are planned.
+Voice, camera, screen share, and room lifecycle are wired. Recording stays planned.
 
 ---
 
@@ -229,7 +230,7 @@ Greenfield. Agent swarms build in parallel, integrating at the event store bound
 | ✅ | Agent CLI — `buzz-cli`, mirrors and extends the MCP surface |
 | ✅ | Agent personas and teams — desktop-managed, built-in defaults, operator-defined |
 | 🚧 | Workflow approval gates — infrastructure exists (DB, API, UI); executor doesn't persist/resume (WF-08) |
-| ✅ | Huddles — WebSocket Opus voice relay + lifecycle events (recording/tracks planned) |
+| ✅ | Huddles — WebSocket Opus voice, camera, and screen share (recording planned) |
 | ✅ | Buzz Mesh — relay-gated shared AI compute (mesh-llm over iroh); members pool GPUs, agents consume via a local OpenAI-compatible endpoint |
 | 🚧 | Mobile client — Flutter app (channels, forum, search, profile, pairing); in active development |
 | 📋 | Remote agents — provider-based deployment to remote substrates (Kubernetes first); spec in review |

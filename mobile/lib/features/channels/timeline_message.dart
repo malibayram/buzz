@@ -508,7 +508,7 @@ List<TimelineMessage> formatTimeline(
       result.add(
         TimelineMessage(
           id: event.id,
-          pubkey: event.pubkey,
+          pubkey: _speakerOrSigner(effectiveTags, event.pubkey),
           createdAt: event.createdAt,
           content: edit?.content ?? event.content,
           tags: effectiveTags,
@@ -748,6 +748,18 @@ class _Edit {
     required this.createdAt,
     required this.tags,
   });
+}
+
+/// Scribe transcripts name the human in a `speaker` tag. Other messages
+/// stay attributed to the signer.
+String _speakerOrSigner(List<List<String>> tags, String signer) {
+  for (final tag in tags) {
+    final value = tag.length >= 2 && tag[0] == 'speaker' ? tag[1] : null;
+    if (value != null && RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(value)) {
+      return value.toLowerCase();
+    }
+  }
+  return signer;
 }
 
 /// Get the last `e` tag value (reaction/edit target convention).

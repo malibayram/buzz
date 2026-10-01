@@ -72,7 +72,8 @@ use huddle::{
     audio_output::{get_audio_output_device, list_audio_output_devices, set_audio_output_device},
     check_pipeline_hotstart, close_huddle_companion, confirm_huddle_active, download_voice_models,
     end_huddle, get_huddle_agent_pubkeys, get_huddle_state, get_model_status, get_voice_input_mode,
-    interrupt_huddle_speech, join_huddle, leave_huddle, open_huddle_window, push_audio_pcm,
+    huddle_video_info, interrupt_huddle_speech, join_huddle, leave_huddle, open_huddle_window,
+    push_audio_pcm, set_huddle_video_enabled, sign_huddle_video_auth,
     reconnect::reconnect_huddle_audio,
     remove_agent_from_huddle, set_huddle_manual_mic_unmuted, set_huddle_transcription_enabled,
     set_tts_enabled, set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
@@ -148,13 +149,17 @@ pub fn run() {
         .plugin(
             tauri::plugin::Builder::<_, ()>::new("initial-window-reveal")
                 .on_webview_ready(|webview| {
-                    if webview.label() != "main" {
+                    let label = webview.label().to_string();
+                    if label == "main" || label.starts_with("huddle-") {
+                        // Linux/WebKitGTK needs media-stream settings and a
+                        // permission-request handler for getUserMedia; no-op
+                        // on macOS/Windows. Companion huddle windows capture
+                        // camera and screen there too.
+                        linux_media::enable_media_capture(&webview);
+                    }
+                    if label != "main" {
                         return;
                     }
-                    // Linux/WebKitGTK needs media-stream settings and a
-                    // permission-request handler for getUserMedia; no-op
-                    // on macOS/Windows.
-                    linux_media::enable_media_capture(&webview);
 
                     // macOS applies the restored geometry asynchronously. Wait
                     // for several identical outer bounds and for React to
@@ -800,6 +805,9 @@ pub fn run() {
             get_note_reactions,
             get_liked_notes,
             start_huddle,
+            set_huddle_video_enabled,
+            huddle_video_info,
+            sign_huddle_video_auth,
             join_huddle,
             leave_huddle,
             end_huddle,

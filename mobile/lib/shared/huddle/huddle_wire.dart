@@ -3,16 +3,16 @@ import 'package:flutter/foundation.dart';
 /// Fixed audio framing contract shared with Buzz Desktop and `buzz-relay`.
 ///
 /// Huddle audio rooms pin the first participant's protocol version. This
-/// compatibility build requests the released v2 contract so it can connect to
-/// relays that have not yet rolled out v3.
+/// client speaks v4: the same eight-byte header as v2, prefixed on the relay
+/// path by the peer index and the occupancy epoch.
 abstract final class HuddleWireV2 {
-  static const protocolVersion = 2;
+  static const protocolVersion = 4;
   static const sampleRateHz = 48000;
   static const channels = 1;
   static const frameSamples = 960;
   static const frameDuration = Duration(milliseconds: 20);
   static const headerLength = 8;
-  static const relayPeerPrefixLength = 1;
+  static const relayPeerPrefixLength = 2;
   static const dtxFlag = 0x01;
   static const maxBinaryFrameLength = 4096;
 
@@ -36,7 +36,7 @@ abstract final class HuddleWireV2 {
   }
 
   /// Decodes a relay-to-client frame:
-  /// `peer index | header | opus payload`.
+  /// `peer index | epoch | header | opus payload`.
   static HuddleRemoteAudioFrame decodeRelayFrame(Uint8List bytes) {
     final minimumLength = relayPeerPrefixLength + headerLength + 1;
     if (bytes.length < minimumLength) {
@@ -54,10 +54,7 @@ abstract final class HuddleWireV2 {
 
     return HuddleRemoteAudioFrame(
       peerIndex: bytes[0],
-      // Protocol v2 has no occupancy epoch on media frames. Keep the internal
-      // field at its legacy value so the rest of the playout model remains
-      // unchanged while routing by the authoritative peer index.
-      epoch: 0,
+      epoch: bytes[1],
       header: HuddleAudioHeader.decode(bytes, offset: relayPeerPrefixLength),
       opusPayload: Uint8List.fromList(
         bytes.sublist(relayPeerPrefixLength + headerLength),

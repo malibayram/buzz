@@ -41,7 +41,7 @@ pub(crate) fn parse_channel_uuid(channel_id: &str) -> Result<Uuid, String> {
 /// Handshake timeout — matches the server's AUTH_TIMEOUT (5 s).
 const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-fn build_audio_auth_event(
+pub(crate) fn build_audio_auth_event(
     keys: &nostr::Keys,
     relay_url: &str,
     challenge: &str,
@@ -75,6 +75,7 @@ async fn connect_authenticated_audio_socket(
     relay_url: &str,
     keys: &nostr::Keys,
     auth_tag_json: Option<&str>,
+    protocol: u8,
 ) -> Result<(WsSink, WsReceiver, u8, Vec<(u8, String, u8)>), String> {
     use nostr::JsonUtil;
 
@@ -114,10 +115,9 @@ async fn connect_authenticated_audio_socket(
         "type": "auth",
         "event": event_json,
         "parent_channel_id": parent_channel_id,
-        // Use the released v2 contract while deployed relays remain capped at
-        // v2. Relay-to-client media therefore has a one-byte peer-index prefix;
-        // see huddle::wire for the compatibility tradeoff.
-        "protocol_version": super::wire::PROTOCOL_VERSION,
+        // v4 only while huddle video is on. v4 audio frames match v3, and a
+        // v4 pin rejects older clients, so a video-off desktop stays on v2.
+        "protocol_version": protocol,
     });
     ws_tx
         .send(WsMsg::Text(auth_msg.to_string().into()))
@@ -208,9 +208,16 @@ pub(crate) async fn connect_audio_relay(
 
     let app_handle = state.app_handle.lock().ok().and_then(|g| g.clone());
 
-    let (ws_tx, ws_rx, _peer_index, initial_peers) =
-        connect_authenticated_audio_socket(channel_id, parent_channel_id, &relay_url, &keys, None)
-            .await?;
+    let protocol = super::wire::negotiated_protocol();
+    let (ws_tx, ws_rx, _peer_index, initial_peers) = connect_authenticated_audio_socket(
+        channel_id,
+        parent_channel_id,
+        &relay_url,
+        &keys,
+        None,
+        protocol,
+    )
+    .await?;
 
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();
@@ -237,6 +244,7 @@ pub(crate) async fn connect_audio_relay(
             agent_pubkeys,
             human_floor,
             output_device_name,
+            protocol,
         })
         .await
         {
@@ -328,6 +336,7 @@ pub(crate) async fn connect_tts_audio_publisher(
         &relay_url,
         keys,
         auth_tag_json,
+        super::wire::negotiated_protocol(),
     )
     .await?;
 
@@ -462,6 +471,7 @@ struct AudioRelayPipelineArgs {
     agent_pubkeys: Arc<std::sync::Mutex<Vec<String>>>,
     human_floor: super::human_floor::HumanFloor,
     output_device_name: Option<String>,
+    protocol: u8,
 }
 
 async fn audio_relay_pipeline(args: AudioRelayPipelineArgs) -> Result<(), String> {
@@ -479,6 +489,7 @@ async fn audio_relay_pipeline(args: AudioRelayPipelineArgs) -> Result<(), String
         agent_pubkeys,
         human_floor,
         output_device_name,
+        protocol,
     } = args;
 
     let mut encoder = opus::Encoder::new(48000, opus::Channels::Mono, opus::Application::Voip)
@@ -591,6 +602,7 @@ async fn audio_relay_pipeline(args: AudioRelayPipelineArgs) -> Result<(), String
         remote_stt_pipeline,
         agent_pubkeys,
         human_floor,
+        protocol,
     ));
 
     // Wait for either task to finish, then abort the survivor.

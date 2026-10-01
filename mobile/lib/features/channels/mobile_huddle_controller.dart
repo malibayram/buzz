@@ -65,9 +65,9 @@ final huddleHumanCountProvider = Provider<HuddleHumanCountLoader>((ref) {
       throw StateError('Relay disconnected during Huddle member lookup.');
     }
     if (events.isEmpty) return 0;
-    return membersFromEvent(
-      events.first,
-    ).where((member) => member.role != 'bot').length;
+    return membersFromEvent(events.first)
+        .where((member) => member.role != 'bot')
+        .length;
   };
 });
 
@@ -176,6 +176,7 @@ final class MobileHuddleController extends Notifier<bool> {
         throw StateError(session.error ?? 'Unable to join the new Huddle.');
       }
       _admissionToken = _HuddleAdmissionToken(admissionEpoch, backingChannelId);
+      _openVideo(parameters);
     } catch (_) {
       if (admissionEpoch == _admissionEpoch) {
         _latestAdmissionTargetBackingChannelId = null;
@@ -239,7 +240,22 @@ final class MobileHuddleController extends Notifier<bool> {
         admissionEpoch,
         ephemeralChannelId,
       );
+      _openVideo(
+        _parameters(
+          parentChannelId: parentChannelId,
+          ephemeralChannelId: ephemeralChannelId,
+        ),
+      );
     }
+  }
+
+  void _openVideo(HuddleConnectionParameters parameters) {
+    unawaited(
+      ref
+          .read(huddleVideoProvider.notifier)
+          .attach(parameters)
+          .then((_) {}, onError: (Object _) {}),
+    );
   }
 
   Future<void>? _backgroundLeave;
@@ -335,6 +351,11 @@ final class MobileHuddleController extends Notifier<bool> {
     Object? localFailure;
     StackTrace? localFailureStackTrace;
     try {
+      try {
+        await ref.read(huddleVideoProvider.notifier).close();
+      } catch (_) {
+        // Camera teardown must not keep the microphone in the room.
+      }
       await ref.read(huddleSessionProvider.notifier).leave();
     } catch (error, stackTrace) {
       localFailure = error;

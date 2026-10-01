@@ -41,9 +41,14 @@
 //!   in any bit of `flags`. Mixed-version rooms are rejected at the relay
 //!   with `upgrade_required`.
 
-/// Wire protocol version this client speaks. Bumped only when the frame
-/// layout itself changes; the relay tracks pinned per-room.
-pub const PROTOCOL_VERSION: u8 = 2;
+/// Wire protocol this client speaks. v4 audio frames match v3 (peer index plus
+/// epoch). Mobile speaks v4 in the same release, so a video-off desktop no
+/// longer has to stay on v2 to keep phones in the room.
+pub const PROTOCOL_VERSION: u8 = 4;
+
+pub fn negotiated_protocol() -> u8 {
+    PROTOCOL_VERSION
+}
 
 /// Length of the v2 per-frame header in bytes.
 pub const V2_HEADER_LEN: usize = 8;
@@ -139,6 +144,24 @@ pub fn parse_relay_frame(bytes: &[u8]) -> Option<(u8, FrameHeader, &[u8])> {
         return None;
     }
     Some((peer_index, header, opus_payload))
+}
+
+/// v3 and v4 prefix the sender epoch after the peer index. v1 and v2 do not.
+pub fn parse_versioned_relay_frame(
+    bytes: &[u8],
+    protocol: u8,
+) -> Option<(u8, Option<u8>, FrameHeader, &[u8])> {
+    if protocol >= 3 {
+        let (&peer_index, rest) = bytes.split_first()?;
+        let (&epoch, framed_audio) = rest.split_first()?;
+        let (header, opus_payload) = FrameHeader::parse(framed_audio)?;
+        if opus_payload.is_empty() {
+            return None;
+        }
+        return Some((peer_index, Some(epoch), header, opus_payload));
+    }
+    let (peer_index, header, opus_payload) = parse_relay_frame(bytes)?;
+    Some((peer_index, None, header, opus_payload))
 }
 
 /// Compute a dBov audio level for a normalized f32 PCM frame.
@@ -342,5 +365,22 @@ mod tests {
         assert!(!parsed.is_dtx());
         // Caller can still check which reserved bits were set if needed.
         assert_eq!(parsed.flags & RESERVED_FLAG_MASK, 0b1010_1010);
+    }
+
+    #[test]
+    fn v4_relay_frame_carries_the_occupancy_epoch() {
+        let mut bytes = vec![3, 9];
+        bytes.extend_from_slice(&FrameHeader {
+            seq: 1,
+            ts_48k: 960,
+            level_dbov: -4,
+            flags: 0,
+        }
+        .encode());
+        bytes.push(0x11);
+        let (peer, epoch, header, opus) =
+            parse_versioned_relay_frame(&bytes, 4).expect("v4 frame");
+        assert_eq!((peer, epoch, header.seq, opus), (3, Some(9), 1, &bytes[10..]));
+        assert!(parse_versioned_relay_frame(&bytes[..1], 4).is_none());
     }
 }

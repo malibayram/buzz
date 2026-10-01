@@ -12028,6 +12028,27 @@ export function maybeInstallE2eTauriMocks() {
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
     switch (command) {
+      case "set_huddle_video_enabled":
+        return null;
+      case "huddle_video_info": {
+        const channel = mockHuddle?.state.ephemeral_channel_id;
+        if (!channel) throw new Error("No active huddle.");
+        return {
+          url: "ws://127.0.0.1:9/huddle/video",
+          relay_url: "ws://127.0.0.1:9",
+          parent_channel_id: mockHuddle?.state.parent_channel_id ?? "",
+        };
+      }
+      case "sign_huddle_video_auth":
+        return {
+          id: "e2e",
+          pubkey: "00".repeat(32),
+          kind: 22242,
+          content: "",
+          created_at: 0,
+          tags: [],
+          sig: "00".repeat(64),
+        };
       case "get_huddle_state": {
         const snapshot = mockHuddle ? structuredClone(mockHuddle.state) : null;
         const delayMs = activeConfig?.mock?.huddleStateReadDelayMs ?? 0;

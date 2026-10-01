@@ -16,16 +16,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message as WsMessage, WebSocket};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::{
-    extract::{FromRequest, Path, State, WebSocketUpgrade},
+    extract::{Path, State, WebSocketUpgrade},
     response::IntoResponse,
 };
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use nostr::{EventBuilder, Kind, Tag};
 use serde::Deserialize;
-use tokio::sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{mpsc, watch, OwnedSemaphorePermit};
+#[cfg(test)]
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -91,65 +93,24 @@ pub async fn ws_audio_handler(
     headers: HeaderMap,
     req: axum::extract::Request,
 ) -> impl IntoResponse {
-    // NIP-FI assertion check at upgrade — before tenant lookup and before the
-    // WebSocket handshake. Running pre-lookup means a denied request pays zero
-    // DB cost and the gate is reachable in tests without a live community.
-    // [FI-TRACE-TRANSPORT-CLOSED] [NIP-FI.md §Admission pairing sequence]
-    let nip_fi_assertion = {
-        use crate::nip_fi_upgrade::{check_nip_fi_at_upgrade, NipFiUpgradeOutcome};
-        let mode = state.config.nip_fi.mode;
-        let verifier = state.nip_fi_verifier.as_deref();
-        match check_nip_fi_at_upgrade(&headers, verifier, mode) {
-            NipFiUpgradeOutcome::NotRequired => None,
-            NipFiUpgradeOutcome::Admitted(assertion) => Some(assertion),
-            NipFiUpgradeOutcome::Denied(resp) => return resp.into_response(),
-        }
-    };
-
-    // Row zero: bind this huddle-audio connection to its community from the
-    // request host BEFORE the WebSocket upgrade, identical to the main relay
-    // door. An unmapped host or lookup failure fails closed with a generic 404
-    // — never a default tenant — so an unauthenticated caller cannot probe
-    // which communities exist on this deployment.
-    let raw_host = headers
-        .get(axum::http::header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let tenant = match crate::tenant::bind_community(&state.db, raw_host).await {
-        Ok(ctx) => ctx,
-        Err(_) => {
-            return (
-                StatusCode::NOT_FOUND,
-                "relay: no community is configured for this host",
-            )
-                .into_response();
-        }
-    };
-
-    let ws = match WebSocketUpgrade::from_request(req, &state).await {
-        Ok(ws) => ws,
-        Err(e) => return e.into_response(),
-    };
-
-    let permit = match acquire_audio_connection_permit(&state.conn_semaphore) {
-        Some(permit) => permit,
-        None => {
-            warn!(channel_id = %channel_id, "Connection limit reached, rejecting audio WebSocket");
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "relay: connection limit reached",
-            )
-                .into_response();
-        }
-    };
+    let prepared =
+        match super::upgrade::prepare_huddle_upgrade(&state, &headers, req, channel_id, "audio")
+            .await
+        {
+            Ok(prepared) => prepared,
+            Err(resp) => return resp,
+        };
+    let super::upgrade::HuddleUpgrade {
+        tenant,
+        nip_fi_assertion,
+        connection_time,
+        permit,
+        ws,
+    } = prepared;
 
     // Keep the parser boundary at the largest message this route accepts. The
     // checks in the receive loop still distinguish text from binary policy, but
     // they run after tungstenite has assembled a message.
-    // Capture the upgrade instant here — before the on_upgrade callback fires —
-    // so the NIP-FI session partition is rooted at the HTTP handshake, not the
-    // post-community-active-check instant. [FI-TRACE-LEASE-BOUND]
-    let connection_time = chrono::Utc::now();
     limit_audio_websocket(ws).on_upgrade(move |socket| {
         handle_audio_connection(
             socket,
@@ -163,10 +124,11 @@ pub async fn ws_audio_handler(
     })
 }
 
-fn acquire_audio_connection_permit(
+#[cfg(test)]
+pub(crate) fn acquire_audio_connection_permit(
     conn_semaphore: &Arc<Semaphore>,
 ) -> Option<OwnedSemaphorePermit> {
-    Arc::clone(conn_semaphore).try_acquire_owned().ok()
+    super::upgrade::acquire_huddle_connection_permit(conn_semaphore)
 }
 
 fn limit_audio_websocket<F>(ws: WebSocketUpgrade<F>) -> WebSocketUpgrade<F> {
@@ -174,10 +136,11 @@ fn limit_audio_websocket<F>(ws: WebSocketUpgrade<F>) -> WebSocketUpgrade<F> {
         .max_frame_size(MAX_WEBSOCKET_MESSAGE_BYTES)
 }
 
-/// Highest huddle audio protocol version this relay understands. Clients are
-/// allowed to negotiate any version in `1..=CURRENT_PROTOCOL_VERSION`; older
-/// versions stay supported indefinitely for staged rollouts.
-const CURRENT_PROTOCOL_VERSION: u8 = 3;
+/// Highest huddle protocol version this relay understands. v4 audio frames
+/// match v3 (peer index + epoch). A v4 room is video-capable: the per-room
+/// pin rejects older clients with `upgrade_required`. Versions `1..=4` still
+/// join a room they pin themselves.
+const CURRENT_PROTOCOL_VERSION: u8 = 4;
 
 #[derive(Deserialize)]
 struct AuthMsg {

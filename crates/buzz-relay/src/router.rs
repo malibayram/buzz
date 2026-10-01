@@ -377,6 +377,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/huddle/{channel_id}/audio",
             get(audio::handler::ws_audio_handler),
         )
+        .route(
+            "/huddle/{channel_id}/video",
+            get(audio::video::ws_video_handler),
+        )
         // Reject request bodies larger than 1 MB to prevent resource exhaustion.
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .with_state(state.clone());

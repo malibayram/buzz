@@ -130,6 +130,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var ageSignalChannel: MethodChannel? = null
     private val ageSignalRequest = AgeSignalRequest()
     private var huddleMediaPlugin: HuddleMediaPlugin? = null
+    private var huddleVideoPlugin: HuddleVideoPlugin? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -137,6 +138,11 @@ class MainActivity : FlutterFragmentActivity() {
         huddleMediaPlugin = HuddleMediaPlugin(
             this,
             flutterEngine.dartExecutor.binaryMessenger,
+        )
+        huddleVideoPlugin = HuddleVideoPlugin(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger,
+            flutterEngine.renderer,
         )
 
         mediaUploadChannel = MethodChannel(
@@ -199,12 +205,15 @@ class MainActivity : FlutterFragmentActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         huddleMediaPlugin?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        huddleVideoPlugin?.onRequestPermissionsResult(requestCode, grantResults)
     }
 
     override fun onDestroy() {
         ageSignalRequest.retire()
         huddleMediaPlugin?.dispose()
         huddleMediaPlugin = null
+        huddleVideoPlugin?.dispose()
+        huddleVideoPlugin = null
         super.onDestroy()
     }
 

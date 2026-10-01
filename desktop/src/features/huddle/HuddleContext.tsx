@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import * as React from "react";
 
+import { useFeatureEnabled } from "@/shared/features";
 import { setupAudioWorklet, type AudioWorkletHandle } from "./lib/audioWorklet";
 import { type AudioInputDevice, useAudioDevices } from "./lib/useAudioDevices";
 import { usePipelineHotstart } from "./lib/usePipelineHotstart";
@@ -82,6 +83,14 @@ export function HuddleProvider({
   /** Reveals an active or archived Huddle channel in the main app. */
   onViewHuddleChannel?: (ephemeralChannelId: string) => void;
 }) {
+  const huddleVideo = useFeatureEnabled("huddleVideo");
+  const huddleVideoRef = React.useRef(huddleVideo);
+  huddleVideoRef.current = huddleVideo;
+  const pinHuddleProtocol = React.useCallback(async () => {
+    await invoke("set_huddle_video_enabled", {
+      enabled: huddleVideoRef.current,
+    });
+  }, []);
   const workletRef = React.useRef<AudioWorkletHandle | null>(null);
   const tokenRef = React.useRef(0);
   const busyRef = React.useRef(false);
@@ -642,6 +651,7 @@ export function HuddleProvider({
       setIsStarting(true);
       onHuddleStartPendingChange?.(true);
       try {
+        await pinHuddleProtocol();
         const joinInfo = await invoke<HuddleJoinInfo>("start_huddle", {
           parentChannelId,
           memberPubkeys,
@@ -690,6 +700,7 @@ export function HuddleProvider({
       getVoiceInputMode,
       onHuddleStartPendingChange,
       onHuddleStarted,
+      pinHuddleProtocol,
     ],
   );
 
@@ -719,6 +730,7 @@ export function HuddleProvider({
       setIsStarting(true);
 
       try {
+        await pinHuddleProtocol();
         const joinInfo = await invoke<HuddleJoinInfo>("join_huddle", {
           parentChannelId,
           ephemeralChannelId,
@@ -766,6 +778,7 @@ export function HuddleProvider({
       connectAndSetupMedia,
       getVoiceInputMode,
       onHuddleStarted,
+      pinHuddleProtocol,
     ],
   );
 

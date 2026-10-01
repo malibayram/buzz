@@ -44,10 +44,14 @@ final class HuddleConnectionParameters {
 
   /// The endpoint is derived from the relay origin, but NIP-42's `relay` tag
   /// must remain [relayWebSocketUrl], not this Huddle-specific URL.
-  Uri get audioWebSocketUri {
+  Uri get audioWebSocketUri => _huddleSocketUri('audio');
+
+  Uri get videoWebSocketUri => _huddleSocketUri('video');
+
+  Uri _huddleSocketUri(String kind) {
     final base = Uri.parse(relayWebSocketUrl);
     return base.replace(
-      path: '/huddle/${Uri.encodeComponent(ephemeralChannelId)}/audio',
+      path: '/huddle/${Uri.encodeComponent(ephemeralChannelId)}/$kind',
       query: null,
       fragment: null,
     );

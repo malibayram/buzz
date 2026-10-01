@@ -145,8 +145,9 @@ final class HuddleSessionState {
 }
 
 typedef HuddleMediaFactory = HuddleMedia Function();
-typedef HuddleTransportFactory =
-    HuddleTransportClient Function(HuddleConnectionParameters parameters);
+typedef HuddleTransportFactory = HuddleTransportClient Function(
+  HuddleConnectionParameters parameters,
+);
 
 final huddleMediaFactoryProvider = Provider<HuddleMediaFactory>(
   (_) => MethodChannelHuddleMedia.new,

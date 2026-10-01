@@ -952,8 +952,10 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "buzz-core",
+ "buzz-huddle-client",
  "buzz-persona",
  "buzz-sdk",
+ "buzz-ws-client",
  "chrono",
  "clap",
  "evalexpr",
@@ -1265,6 +1267,20 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "buzz-huddle-client"
+version = "0.1.0"
+dependencies = [
+ "buzz-ws-client",
+ "futures-util",
+ "nostr 0.44.7",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite 0.29.0",
+ "url",
 ]
 
 [[package]]
@@ -1583,6 +1599,18 @@ dependencies = [
  "symphonia",
  "tempfile",
  "tokenizers",
+]
+
+[[package]]
+name = "buzz-voice-agent"
+version = "0.1.0"
+dependencies = [
+ "buzz-huddle-client",
+ "buzz-ws-client",
+ "nostr 0.44.7",
+ "reqwest 0.13.4",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

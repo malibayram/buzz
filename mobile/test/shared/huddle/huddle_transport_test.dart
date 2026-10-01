@@ -28,7 +28,7 @@ void main() {
     expect(auth, isA<Map<String, dynamic>>());
     expect(auth['type'], 'auth');
     expect(auth['parent_channel_id'], _parentChannelId);
-    expect(auth['protocol_version'], 2);
+    expect(auth['protocol_version'], 4);
 
     channel.emitText(
       jsonEncode({
@@ -72,7 +72,7 @@ void main() {
         ),
       );
       channel.emitBinary(
-        Uint8List.fromList([4, 0, 9, 0, 0, 3, 0xc0, 0xd8, 0, 0xaa]),
+        Uint8List.fromList([4, 0, 0, 9, 0, 0, 3, 0xc0, 0xd8, 0, 0xaa]),
       );
       await inbound;
 
@@ -471,10 +471,10 @@ void main() {
   );
 
   test(
-    'v2 media routes through the current peer-index occupant after reuse',
+    'v4 media drops the previous occupancy after an index is reused',
     () async {
-      // Protocol v2 exposes only the peer index on media. After the roster
-      // reassigns that index, subsequent frames route to the current occupant.
+      // v4 media carries the occupancy epoch. After the roster reassigns the
+      // index, delayed frames from the previous epoch are not played.
       final channel = _ControlledWebSocketChannel();
       final transport = _transport(channel);
       addTearDown(transport.dispose);
@@ -509,13 +509,11 @@ void main() {
       expect(transport.state.peers[4]?.pubkey, 'new');
       expect(transport.state.peers[4]?.epoch, 1);
 
-      // V2 cannot distinguish delayed media from the old occupancy, so both
-      // packets are delivered through the currently occupied index.
       channel.emitBinary(_relayFrame(peerIndex: 4, epoch: 0, sequence: 7));
       channel.emitBinary(_relayFrame(peerIndex: 4, epoch: 1, sequence: 8));
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(received, [7, 8]);
+      expect(received, [8]);
     },
   );
 
@@ -823,7 +821,7 @@ Uint8List _relayFrame({
     header,
     Uint8List.fromList([sequence & 0xff]),
   );
-  return Uint8List.fromList([peerIndex, ...clientFrame]);
+  return Uint8List.fromList([peerIndex, epoch, ...clientFrame]);
 }
 
 Future<void> _waitForPhase(

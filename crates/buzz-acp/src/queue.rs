@@ -1113,6 +1113,8 @@ pub struct ThreadTags {
     pub parent_event_id: Option<String>,
     /// Mentioned pubkeys from `p` tags (hex).
     pub mentioned_pubkeys: Vec<String>,
+    /// Human who spoke, when a bot-authored transcript carries a `speaker` tag.
+    pub speaker_pubkey: Option<String>,
 }
 
 /// Original-message routing recovered for a kind:40003 edit event.
@@ -1165,10 +1167,14 @@ pub(crate) fn routing_thread_tags(event: &Event, edit: Option<&ResolvedEdit>) ->
     }
     match edit {
         Some(edit) => edit.target_thread_tags.clone(),
-        None => ThreadTags {
-            mentioned_pubkeys: parse_thread_tags(event).mentioned_pubkeys,
-            ..ThreadTags::default()
-        },
+        None => {
+            let parsed = parse_thread_tags(event);
+            ThreadTags {
+                mentioned_pubkeys: parsed.mentioned_pubkeys,
+                speaker_pubkey: parsed.speaker_pubkey,
+                ..ThreadTags::default()
+            }
+        }
     }
 }
 
@@ -1198,12 +1204,22 @@ pub fn parse_thread_tags(event: &Event) -> ThreadTags {
             (parts.len() >= 2 && parts[0] == "p").then(|| parts[1].clone())
         })
         .collect();
+    let speaker_pubkey = event.tags.iter().find_map(|tag| {
+        let parts = tag.as_slice();
+        (parts.len() >= 2 && parts[0] == "speaker" && is_hex_pubkey(&parts[1]))
+            .then(|| parts[1].to_lowercase())
+    });
 
     ThreadTags {
         root_event_id,
         parent_event_id,
         mentioned_pubkeys: mentions,
+        speaker_pubkey,
     }
+}
+
+fn is_hex_pubkey(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 /// Extract a leading slash command from message content.
@@ -1521,8 +1537,9 @@ fn append_new_thread_reply_instruction(s: &mut String, event_id: &str) {
 
 /// Decide whether a turn is human-facing for reply-anchor purposes.
 ///
-/// A turn is human-facing when the triggering sender is a human, OR a human
-/// (other than this agent) is tagged in the triggering event. Identity comes
+/// A turn is human-facing when the triggering sender is a human, a
+/// `speaker` tag names a human (a scribe transcript signed by a bot), OR a
+/// human (other than this agent) is tagged in the triggering event. Identity comes
 /// from `PromptProfile::is_agent` (NIP-OA auth tag), not raw `p`-tag presence:
 /// agent-only mentions must not force flattening. When a participant cannot be
 /// classified (no profile fetched), it is treated as human — humans must not
@@ -1541,6 +1558,13 @@ fn turn_is_human_facing(
     };
 
     if !is_agent(sender_pubkey) {
+        return true;
+    }
+    if thread_tags
+        .speaker_pubkey
+        .as_deref()
+        .is_some_and(|speaker| !is_agent(speaker))
+    {
         return true;
     }
     thread_tags.mentioned_pubkeys.iter().any(|pk| !is_agent(pk))
@@ -4633,6 +4657,7 @@ mod tests {
             root_event_id: root.map(str::to_string),
             parent_event_id: root.map(str::to_string),
             mentioned_pubkeys: mentions.iter().map(|s| s.to_string()).collect(),
+            speaker_pubkey: None,
         }
     }
 
@@ -4690,6 +4715,14 @@ mod tests {
         let tags = thread_tags(Some(ROOT_ID), &[AGENT_A_PK, AGENT_B_PK]);
         let anchor = resolve_reply_anchor(AGENT_A_PK, &tags, TRIGGER_ID, Some(&id_lookup()));
         assert_eq!(anchor, None);
+    }
+
+    #[test]
+    fn test_anchor_scribe_speaker_is_the_human() {
+        let mut tags = thread_tags(Some(ROOT_ID), &[AGENT_A_PK, AGENT_B_PK]);
+        tags.speaker_pubkey = Some(HUMAN_PK.to_string());
+        let anchor = resolve_reply_anchor(AGENT_A_PK, &tags, TRIGGER_ID, Some(&id_lookup()));
+        assert_eq!(anchor.as_deref(), Some(ROOT_ID));
     }
 
     #[test]
@@ -6404,6 +6437,7 @@ mod tests {
                     root_event_id: Some(root_id.clone()),
                     parent_event_id: Some("44".repeat(32)),
                     mentioned_pubkeys: vec![],
+                    speaker_pubkey: None,
                 },
             }),
         );
@@ -6439,6 +6473,7 @@ mod tests {
                 root_event_id: Some("cd".repeat(32)),
                 parent_event_id: Some("cd".repeat(32)),
                 mentioned_pubkeys: vec![],
+                speaker_pubkey: None,
             },
         };
         q.push(queued_edit(ch, &target_id, Some(resolved.clone())));

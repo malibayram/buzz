@@ -256,6 +256,8 @@ pub struct Room {
     pub channel_id: Uuid,
     /// Connected peers keyed by peer UUID.
     pub peers: DashMap<Uuid, AudioPeer>,
+    /// Codec-opaque video SFU for this room. Cleared on every audio removal.
+    pub video: super::video::VideoHub,
     /// Admission gate: index allocator + ended flag under one lock.
     guard: std::sync::Mutex<AdmissionGuard>,
     /// Ordered authoritative roster mutations. Lag is recoverable from
@@ -271,6 +273,7 @@ impl Room {
             community_id,
             channel_id,
             peers: DashMap::new(),
+            video: super::video::VideoHub::new(),
             guard: std::sync::Mutex::new(AdmissionGuard::new()),
             roster_tx,
         }
@@ -283,7 +286,10 @@ impl Room {
     pub fn mark_ended(&self) -> bool {
         if let Ok(mut g) = self.guard.lock() {
             g.ended = true;
-            self.peers.is_empty()
+            let empty = self.peers.is_empty();
+            drop(g);
+            self.video.clear_all();
+            empty
         } else {
             false
         }
@@ -371,6 +377,7 @@ impl Room {
         };
         let _ = self.roster_tx.send(delta);
         drop(g); // Release lock after ordered roster publication.
+        self.video.retire_other_epochs(peer_index, epoch);
         Ok((peer_id, peer_index, epoch, audio_rx, ctrl_rx, revision))
     }
 
@@ -437,6 +444,7 @@ impl Room {
         };
         let _ = self.roster_tx.send(delta);
         drop(g);
+        self.video.retire_other_epochs(peer_index, epoch);
         Ok((peer_id, epoch, audio_rx, ctrl_rx, revision))
     }
 
@@ -451,7 +459,9 @@ impl Room {
             return None;
         };
         let (_, peer) = self.peers.remove(&peer_id)?;
-        g.active_indices.remove(&peer.peer_index);
+        let index = peer.peer_index;
+        let epoch = peer.epoch;
+        g.active_indices.remove(&index);
         g.roster_revision = g.roster_revision.wrapping_add(1);
         let delta = RosterDelta {
             revision: g.roster_revision,
@@ -464,6 +474,7 @@ impl Room {
         };
         let _ = self.roster_tx.send(delta.clone());
         drop(g);
+        self.video.clear_occupancy(index, epoch);
         Some(delta)
     }
 
@@ -485,9 +496,11 @@ impl Room {
         let Some((_, peer)) = self.peers.remove(&peer_id) else {
             return false;
         };
-        // Free the index so it can be reallocated (rotated, as usual).
-        g.active_indices.remove(&peer.peer_index);
-        // No roster_revision bump, no roster_tx send — the peer was pending.
+        let index = peer.peer_index;
+        let epoch = peer.epoch;
+        g.active_indices.remove(&index);
+        drop(g);
+        self.video.clear_occupancy(index, epoch);
         true
     }
 
@@ -547,6 +560,7 @@ impl Room {
         );
         // No roster_revision bump; no roster_tx send — deferred to commit_peer.
         drop(g);
+        self.video.retire_other_epochs(peer_index, epoch);
         Ok((
             peer_id,
             peer_index,
@@ -607,6 +621,7 @@ impl Room {
         );
         // No roster_revision bump; no roster_tx send — deferred to commit_peer.
         drop(g);
+        self.video.retire_other_epochs(peer_index, epoch);
         Ok((peer_id, epoch, audio_rx, ctrl_rx, snapshot_revision))
     }
 
@@ -675,6 +690,7 @@ impl Room {
         let mut g = self.guard.lock().ok()?;
         let (_, peer) = self.peers.remove(&peer_id)?;
         let peer_index = peer.peer_index;
+        let epoch = peer.epoch;
         g.active_indices.remove(&peer_index);
         g.roster_revision = g.roster_revision.wrapping_add(1);
         let delta = RosterDelta {
@@ -697,6 +713,10 @@ impl Room {
         };
         let _ = self.roster_tx.send(delta.clone());
         drop(g);
+        self.video.clear_occupancy(peer_index, epoch);
+        if should_end {
+            self.video.clear_all();
+        }
         Some((delta, should_end))
     }
 
@@ -715,14 +735,20 @@ impl Room {
         let Some((_, peer)) = self.peers.remove(&peer_id) else {
             return (false, false);
         };
-        g.active_indices.remove(&peer.peer_index);
-        // No revision bump, no delta.
+        let index = peer.peer_index;
+        let epoch = peer.epoch;
+        g.active_indices.remove(&index);
         let should_end = if !g.ended && self.peers.is_empty() {
             g.ended = true;
             true
         } else {
             false
         };
+        drop(g);
+        self.video.clear_occupancy(index, epoch);
+        if should_end {
+            self.video.clear_all();
+        }
         (true, should_end)
     }
 

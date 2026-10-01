@@ -225,6 +225,8 @@ spec:
 
             - name: BUZZ_HUDDLE_AUDIO_AVAILABLE
               value: {{ include "buzz.huddleAudioAvailable" . | quote }}
+            - name: BUZZ_HUDDLE_VIDEO_AVAILABLE
+              value: {{ include "buzz.huddleVideoAvailable" . | quote }}
 
             {{- with .Values.relay.extraEnv }}
             {{- toYaml . | nindent 12 }}
