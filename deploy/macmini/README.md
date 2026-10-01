@@ -97,10 +97,34 @@ Because Docker and the tunnel both start at login, turn on automatic login for t
 Mac mini user (**System Settings → Users & Groups**). Also turn on **Energy → Prevent
 automatic sleeping**.
 
+## 4b. Alternative: Tailscale Funnel
+
+Cloudflare tunnels need **outbound TCP/UDP port 7844**. If your network
+blocks it (`nc -vz -w 5 region1.v2.argotunnel.com 7844` times out), publish
+through Tailscale Funnel instead. It runs over port 443:
+
+```bash
+./deploy/macmini/setup.sh funnel
+```
+
+This step:
+1. Installs Tailscale and runs it as a boot-time daemon. If the Tailscale Mac
+   app is already installed, it uses that instead.
+2. Prints a login URL. Open it on any device and sign in to Tailscale (free).
+3. Enables Funnel for `127.0.0.1:3000`. If Tailscale prints a link to turn on
+   HTTPS/Funnel for your tailnet, open it and approve.
+4. Removes any Cloudflare tunnel agent this script installed, points
+   the relay at `buzz.<tailnet>.ts.net`, and restarts it.
+
+Join from the desktop app with the printed `….ts.net` hostname. Funnel traffic
+is relayed through Tailscale's servers, so heavy video may be bandwidth-limited.
+Use either `tunnel` or `funnel`, not both. To switch hostnames later, run
+`./deploy/macmini/setup.sh set-host <hostname>`.
+
 ## 5. Verify
 
 ```bash
-./deploy/macmini/setup.sh check
+./deploy/macmini/setup.sh check    # checks whatever RELAY_URL points at
 ```
 
 What working looks like:

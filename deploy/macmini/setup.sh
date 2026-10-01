@@ -273,25 +273,128 @@ wait_for_tunnel() {
   exit 1
 }
 
+# Hostname the relay is configured for (RELAY_URL in .env), else site.env.
+current_host() {
+  local url=""
+  if [[ -f "${ENV_FILE}" ]]; then
+    url="$(sed -n 's/^RELAY_URL=wss:\/\///p' "${ENV_FILE}" | head -1)"
+  fi
+  echo "${url:-${BUZZ_HOSTNAME}}"
+}
+
 cmd_check() {
-  local domain="${1:-${BUZZ_HOSTNAME}}"
-  [[ -n "${domain}" ]] || die "Usage: $0 check <hostname> (or set BUZZ_HOSTNAME in site.env)"
+  local domain="${1:-$(current_host)}"
+  [[ -n "${domain}" ]] || die "Usage: $0 check <hostname>"
+  echo "• Checking https://${domain}"
   echo "• Local liveness"
   curl -fsS "http://127.0.0.1:3000/_liveness" && echo || echo "FAILED: relay is not running (./deploy/macmini/setup.sh start)"
-  echo "• Tunnel connection"
-  cloudflared tunnel info "${TUNNEL_NAME}" 2>&1 | tail -3
-  echo "• Public NIP-11 through the tunnel"
+  if [[ "${domain}" == *.ts.net ]]; then
+    echo "• Tailscale Funnel"
+    "$(tailscale_cli)" funnel status 2>&1 | head -5 || true
+  elif command -v cloudflared >/dev/null 2>&1; then
+    echo "• Cloudflare tunnel connection"
+    cloudflared tunnel info "${TUNNEL_NAME}" 2>&1 | tail -3
+  fi
+  echo "• Public NIP-11"
   local nip11
-  if nip11="$(curl -fsS -H 'Accept: application/nostr+json' "https://${domain}")"; then
+  if nip11="$(curl -fsS --max-time 15 -H 'Accept: application/nostr+json' "https://${domain}")"; then
     echo "${nip11:0:400}"
   else
-    echo "FAILED: 530 means the tunnel is not connected; see ~/Library/Logs/buzz-tunnel.log"
+    echo "FAILED: the public URL is not reaching the relay"
   fi
-  echo "• Public WebSocket upgrade (expect HTTP/1.1 101 or 426, not 404/502)"
+  echo "• Public WebSocket upgrade (expect 101 or 426, not 404/502/530)"
   curl -sS -o /dev/null -w '%{http_code}\n' --http1.1 \
     -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
     -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
     --max-time 5 "https://${domain}/" || true
+}
+
+# Point the relay at a new public hostname and restart it. Only the
+# hostname-derived keys change; secrets in .env are untouched.
+cmd_set_host() {
+  local host="${1:?Usage: $0 set-host <hostname>}"
+  [[ "${host}" != *"://"* ]] || die "pass a bare hostname, not a URL"
+  [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; run: $0 env <owner npub>"
+  set_env BUZZ_DOMAIN "${host}"
+  set_env RELAY_URL "wss://${host}"
+  set_env BUZZ_MEDIA_BASE_URL "https://${host}/media"
+  set_env BUZZ_MEDIA_SERVER_DOMAIN "${host}"
+  set_env BUZZ_CORS_ORIGINS "https://${host}"
+  echo "Relay hostname set to ${host}; restarting the relay…"
+  "${COMPOSE_DIR}/run.sh" restart
+}
+
+# Stop any Cloudflare tunnel agents this script (or cloudflared) installed.
+remove_cloudflare_agents() {
+  local uid label
+  uid="$(id -u)"
+  for label in "${TUNNEL_AGENT_LABEL}" com.cloudflare.cloudflared; do
+    if [[ -f "${HOME}/Library/LaunchAgents/${label}.plist" ]]; then
+      launchctl bootout "gui/${uid}/${label}" 2>/dev/null || true
+      rm -f "${HOME}/Library/LaunchAgents/${label}.plist"
+      echo "Removed Cloudflare tunnel agent ${label}"
+    fi
+  done
+}
+
+# The Tailscale CLI: the Mac app's bundled CLI if the app is installed,
+# otherwise the Homebrew open-source client.
+tailscale_cli() {
+  if [[ -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]]; then
+    echo "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+  else
+    command -v tailscale || echo tailscale
+  fi
+}
+
+cmd_funnel() {
+  local ts
+  if [[ -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]]; then
+    ts="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+    echo "Using the Tailscale app. Keep it running and set to open at login."
+  else
+    need brew "Install Homebrew first: https://brew.sh"
+    if ! command -v tailscale >/dev/null 2>&1; then
+      echo "Installing Tailscale (open-source client)…"
+      brew install tailscale
+    fi
+    ts="$(command -v tailscale)"
+    # Root daemon: starts at boot, before anyone logs in.
+    if ! sudo brew services list 2>/dev/null | grep -qE '^tailscale +started'; then
+      sudo brew services start tailscale
+    fi
+  fi
+
+  local ready=""
+  for _ in $(seq 1 15); do
+    if "${ts}" status --json >/dev/null 2>&1 || "${ts}" status 2>&1 | grep -q "Logged out"; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [[ -n "${ready}" ]] || die "the Tailscale daemon did not start; check: sudo brew services list"
+
+  local state
+  state="$("${ts}" status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("BackendState",""))' 2>/dev/null || true)"
+  if [[ "${state}" != "Running" ]]; then
+    echo "Log in to Tailscale: open the URL printed below on any device."
+    sudo "${ts}" up --hostname=buzz
+  fi
+
+  echo "Publishing http://127.0.0.1:3000 with Tailscale Funnel."
+  echo "If Tailscale prints a link to enable HTTPS or Funnel for your tailnet, open it and approve."
+  sudo "${ts}" funnel --bg 3000
+
+  local host
+  host="$("${ts}" status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
+  [[ "${host}" == *.ts.net ]] || die "could not read this machine's Tailscale hostname (got '${host}')"
+  echo "Public URL: https://${host}"
+
+  remove_cloudflare_agents
+  cmd_set_host "${host}"
+  echo
+  echo "Done. Join from the desktop app with: ${host}"
 }
 
 case "${1:-help}" in
@@ -301,6 +404,8 @@ case "${1:-help}" in
   start) cmd_start ;;
   tunnel) shift; cmd_tunnel "$@" ;;
   check) shift; cmd_check "$@" ;;
+  funnel) cmd_funnel ;;
+  set-host) shift; cmd_set_host "$@" ;;
   *)
     cat <<MSG
 Usage: $0 <step>
@@ -309,10 +414,13 @@ Usage: $0 <step>
   env [hostname] <owner>         Generate deploy/compose/.env (owner = your npub or hex pubkey)
   build                          Build the relay image from this checkout (${IMAGE})
   start                          Start Postgres, Redis, MinIO and the relay
-  tunnel [hostname]              Create the Cloudflare tunnel + DNS and run it at login
-  check [hostname]               Verify the relay locally and through the tunnel
+  tunnel [hostname]              Publish via a Cloudflare tunnel (needs outbound port 7844)
+  funnel                         Publish via Tailscale Funnel over 443 (https://buzz.<tailnet>.ts.net)
+  set-host <hostname>            Point the relay at a new public hostname and restart it
+  check [hostname]               Verify the relay locally and through the public URL
 
-Omitted hostname/owner default to site.env (hostname: ${BUZZ_HOSTNAME:-unset}).
+Use either "tunnel" or "funnel", not both. Omitted hostname/owner default to
+site.env (hostname: ${BUZZ_HOSTNAME:-unset}); "check" uses the relay's RELAY_URL.
 
 Day-2: ../compose/run.sh logs | status | restart | add-member <npub>
 MSG
