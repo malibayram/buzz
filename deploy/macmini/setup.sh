@@ -208,6 +208,18 @@ YAML
   install_tunnel_agent "${config}"
   wait_for_tunnel
   echo "Tunnel ${TUNNEL_NAME} (${tunnel_id}) → https://${domain}"
+
+  # Switching from Tailscale Funnel: stop publishing there so one URL is live.
+  if command -v tailscale >/dev/null 2>&1 || [[ -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]]; then
+    if "$(tailscale_cli)" funnel status 2>/dev/null | grep -q "Funnel on"; then
+      echo "Turning off Tailscale Funnel (now served by the Cloudflare tunnel)…"
+      sudo "$(tailscale_cli)" funnel reset || echo "warning: could not reset Tailscale Funnel; run: sudo tailscale funnel reset" >&2
+    fi
+  fi
+  if [[ "$(current_host)" != "${domain}" ]]; then
+    cmd_set_host "${domain}"
+  fi
+  echo "Join from the desktop app with: https://${domain}  (include https://)"
 }
 
 # Run the named tunnel explicitly from our own login agent (with its own log
