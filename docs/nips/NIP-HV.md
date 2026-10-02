@@ -32,7 +32,10 @@ track u8 | layer u8 | flags u8 | reserved u8 | frame_seq u32 | ts_90k u32 | Anne
 
 `track` is 0 for camera and 1 for screen. `layer` is 0 (low) or 1 (high).
 Screen uses layer 0 only. Bit 0 of `flags` marks a keyframe. The codec string
-is `avc1.42E01F`. Frames larger than 512 KB are rejected.
+is `avc1.42E01F`. It names the Constrained Baseline profile; receivers must not
+rely on its level, because a publisher may encode a screen share above 720p at
+a higher level (for example `avc1.42E028`). SPS/PPS travel in-band with each
+keyframe. Frames larger than 512 KB are rejected.
 
 Relay to client prefixes that frame with `peer_index u8 | epoch u8`.
 
@@ -55,6 +58,17 @@ After subscribe, a layer change, or a dropped frame, the SFU skips deltas
 until the next keyframe and sends `keyframe_request` when the rate limit
 allows. An oversize frame tells the publisher `frame_too_large` and requests
 a keyframe; the publisher must lower bitrate, because a keyframe is larger.
+
+Each subscriber queue is small (16 frames, 768 KB) so a slow viewer drops to
+the next keyframe instead of buffering seconds of video ahead of its audio.
+When a camera layer-1 frame overflows that queue, the relay moves that
+subscriber to layer 0 and asks for a layer-0 keyframe, so one slow viewer does
+not force keyframes on every layer-1 viewer. A later `subscribe` may raise it
+again.
+
+The relay sends a WebSocket ping every 20 s and closes a socket it has read
+nothing from (including pongs) for 60 s. Clients should reconnect, then
+re-publish and re-subscribe, when the socket closes while the huddle is live.
 
 ## Mesh
 

@@ -1817,9 +1817,19 @@ async fn serve(
         hard_shutdown_abort
     });
 
-    let tcp_listener = tokio::net::TcpListener::bind(&config.bind_addr)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to bind {}: {e}", config.bind_addr))?;
+    // Huddle audio and video are small, latency-bound WebSocket frames;
+    // Nagle would coalesce them into bursts the jitter buffer must absorb.
+    let tcp_listener = {
+        use axum::serve::ListenerExt as _;
+        tokio::net::TcpListener::bind(&config.bind_addr)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to bind {}: {e}", config.bind_addr))?
+            .tap_io(|tcp| {
+                if let Err(err) = tcp.set_nodelay(true) {
+                    warn!(error = %err, "failed to set TCP_NODELAY");
+                }
+            })
+    };
     info!(addr = %config.bind_addr, "buzz-relay TCP listening");
 
     #[cfg(unix)]

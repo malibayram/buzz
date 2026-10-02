@@ -5,7 +5,7 @@ use std::time::Instant;
 use super::header::{classify_inbound, prefix_relay_frame, InboundFrame, VideoFrameHeader};
 use super::hub::Inner;
 use super::msgs;
-use super::types::{QUEUE_BYTES, QUEUE_FRAMES};
+use super::types::{QUEUE_BYTES, QUEUE_FRAMES, TRACK_CAMERA};
 
 impl Inner {
     pub(super) fn push_frame(
@@ -95,14 +95,26 @@ impl Inner {
             .get_mut(&dest)
             .is_some_and(|occ| enqueue(occ, prefixed));
         if !queued {
+            // A viewer that cannot keep up with the high camera layer drops to
+            // the low one. Re-arming the high layer instead would make every
+            // high-layer viewer pay for this one viewer's keyframes.
+            let layer = if header.track == TRACK_CAMERA
+                && header.layer > 0
+                && self.layer_published(index, epoch, header.track, 0)
+            {
+                0
+            } else {
+                header.layer
+            };
             if let Some(slot) = self
                 .people
                 .get_mut(&dest)
                 .and_then(|o| o.desired.get_mut(&key))
             {
+                slot.layer = layer;
                 slot.needs_keyframe = true;
             }
-            self.ask_keyframe(index, epoch, header.track, header.layer, now);
+            self.ask_keyframe(index, epoch, header.track, layer, now);
             return;
         }
         if header.is_keyframe() {

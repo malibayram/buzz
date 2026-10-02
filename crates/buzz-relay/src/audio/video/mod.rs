@@ -11,9 +11,13 @@ mod session;
 mod types;
 
 #[cfg(test)]
+mod congestion_tests;
+#[cfg(test)]
 mod flow_tests;
 #[cfg(test)]
 mod limit_test;
+#[cfg(test)]
+mod pump_tests;
 #[cfg(test)]
 mod removal_tests;
 

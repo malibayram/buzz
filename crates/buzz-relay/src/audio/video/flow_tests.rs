@@ -4,7 +4,7 @@ use super::header::FLAG_KEYFRAME;
 use super::hub::VideoHub;
 use super::types::{VideoCtrl, QUEUE_FRAMES, VIDEO_MAX_FRAME_BYTES};
 
-fn frame(track: u8, layer: u8, key: bool, n: u8) -> Vec<u8> {
+pub(super) fn frame(track: u8, layer: u8, key: bool, n: u8) -> Vec<u8> {
     vec![
         track,
         layer,
@@ -31,7 +31,7 @@ pub(super) fn publish_camera(hub: &VideoHub, index: u8, epoch: u8, generation: u
     );
 }
 
-fn texts(rx: &mut tokio::sync::mpsc::Receiver<VideoCtrl>) -> Vec<String> {
+pub(super) fn texts(rx: &mut tokio::sync::mpsc::Receiver<VideoCtrl>) -> Vec<String> {
     let mut out = Vec::new();
     while let Ok(VideoCtrl::Text(text)) = rx.try_recv() {
         out.push(text);

@@ -56,8 +56,10 @@ pub enum PeerCtrl {
     Close,
 }
 
-/// Audio channel capacity per peer: 8 frames = 160ms at 20ms/frame.
-const AUDIO_CHANNEL_CAPACITY: usize = 8;
+/// Audio channel capacity per peer: 16 frames = 320ms at 20ms/frame. Huddle
+/// media rides TCP (often through a tunnel), so short stalls arrive as bursts;
+/// the client jitter buffer absorbs late frames, but dropped frames are gaps.
+const AUDIO_CHANNEL_CAPACITY: usize = 16;
 /// Control channel capacity per peer: 32 slots — must never drop joined/left
 /// messages, which are state-bearing (they maintain the client's peer_index →
 /// pubkey map). Sized generously: even 30 simultaneous join/leave events fit.

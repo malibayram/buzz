@@ -25,9 +25,9 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use nostr::{EventBuilder, Kind, Tag};
 use serde::Deserialize;
-use tokio::sync::{mpsc, watch, OwnedSemaphorePermit};
 #[cfg(test)]
 use tokio::sync::Semaphore;
+use tokio::sync::{mpsc, watch, OwnedSemaphorePermit};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;

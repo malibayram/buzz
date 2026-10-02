@@ -9,9 +9,13 @@ use tokio::sync::mpsc;
 /// Application cap for one encoded access unit, including the 12-byte header.
 pub const VIDEO_MAX_FRAME_BYTES: usize = 512 * 1024;
 /// Per-subscriber media queue, in frames. Separate from the audio queue.
-pub const QUEUE_FRAMES: usize = 32;
-/// Per-subscriber media queue, in bytes.
-pub const QUEUE_BYTES: usize = 2 * 1024 * 1024;
+/// Sized for latency, not throughput: a viewer that falls behind drops to the
+/// next keyframe instead of buffering seconds of video that would compete
+/// with huddle audio on the same downlink.
+pub const QUEUE_FRAMES: usize = 16;
+/// Per-subscriber media queue, in bytes. Must exceed `VIDEO_MAX_FRAME_BYTES`
+/// so a maximal keyframe can always be admitted to an empty queue.
+pub const QUEUE_BYTES: usize = 768 * 1024;
 pub const MAX_CAMERAS: usize = 8;
 pub const KEYFRAME_MIN: std::time::Duration = std::time::Duration::from_millis(500);
 pub const CTRL_CAP: usize = 32;
