@@ -124,6 +124,7 @@ export async function openVideoLink(
       events.onKeyframe(message.track, message.layer);
     }
     if (message.type === "error" && typeof message.code === "string") {
+      console.warn(`[huddle-video] relay error ${message.code}`);
       events.onError(message.code);
     }
   };
@@ -144,7 +145,12 @@ export async function openVideoLink(
         deliver(event.data);
       }
     };
-    socket.onclose = lost;
+    socket.onclose = (event) => {
+      console.warn(
+        `[huddle-video] socket closed code=${event.code} reason=${event.reason || "-"} opened=${opened}`,
+      );
+      lost();
+    };
     socket.onerror = lost;
   }
   const shut = () => {

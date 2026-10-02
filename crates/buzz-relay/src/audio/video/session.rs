@@ -70,6 +70,7 @@ pub async fn run_video_connection(
         return;
     }
     let Some(auth) = read_auth(&mut stream, &cancel).await else {
+        tracing::info!(%channel_id, "huddle video socket closed before auth");
         return;
     };
     if auth.msg_type != "auth" {
@@ -124,7 +125,8 @@ pub async fn run_video_connection(
         room.video.unbind(index, epoch, lease.generation);
         return;
     }
-    pump(
+    tracing::info!(%channel_id, index, epoch, generation = lease.generation, "huddle video socket bound");
+    let end = pump(
         &room,
         index,
         epoch,
@@ -139,6 +141,7 @@ pub async fn run_video_connection(
         },
     )
     .await;
+    tracing::info!(%channel_id, index, epoch, generation = lease.generation, reason = ?end, "huddle video socket ended");
     room.video.unbind(index, epoch, lease.generation);
 }
 
@@ -187,6 +190,7 @@ async fn send_code(
     sink: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
     code: &str,
 ) -> Result<(), axum::Error> {
+    tracing::info!(code, "huddle video socket rejected");
     let text = super::msgs::error_msg(code);
     sink.send(WsMessage::Text(text.into())).await
 }

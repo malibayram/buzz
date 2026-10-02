@@ -33,13 +33,31 @@ pub(super) struct PumpSockets<'a, S, R> {
     pub cancel: &'a CancellationToken,
 }
 
+/// Why a bound video socket stopped. Logged so a client that keeps
+/// reconnecting can be diagnosed from relay logs alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum PumpEnd {
+    Cancelled,
+    ClientClosed,
+    /// The WebSocket layer rejected input (e.g. a message above the cap).
+    ReadError(String),
+    ReadIdle,
+    WriteFailed,
+    WriteTimeout,
+    /// The hub dropped this occupancy: a newer socket bound, the audio peer
+    /// left or rejoined, or the room ended.
+    Replaced,
+    Terminated,
+}
+
 pub(super) async fn pump<S, R>(
     room: &Room,
     index: u8,
     epoch: u8,
     generation: u64,
     io: PumpSockets<'_, S, R>,
-) where
+) -> PumpEnd
+where
     S: Sink<WsMessage> + Unpin,
     R: Stream<Item = Result<WsMessage, axum::Error>> + Unpin,
 {
@@ -56,22 +74,22 @@ pub(super) async fn pump<S, R>(
         room, index, epoch, generation, sink, media_rx, ctrl_rx, term_rx,
     );
     tokio::select! {
-        _ = cancel.cancelled() => {}
-        _ = reader => {}
-        _ = writer => {}
+        _ = cancel.cancelled() => PumpEnd::Cancelled,
+        end = reader => end,
+        end = writer => end,
     }
 }
 
-async fn read_loop<R>(room: &Room, index: u8, epoch: u8, generation: u64, stream: &mut R)
+async fn read_loop<R>(room: &Room, index: u8, epoch: u8, generation: u64, stream: &mut R) -> PumpEnd
 where
     R: Stream<Item = Result<WsMessage, axum::Error>> + Unpin,
 {
     loop {
         let Ok(incoming) = tokio::time::timeout(READ_IDLE, stream.next()).await else {
-            return;
+            return PumpEnd::ReadIdle;
         };
-        if !on_client(room, index, epoch, generation, incoming) {
-            return;
+        if let Some(end) = on_client(room, index, epoch, generation, incoming) {
+            return end;
         }
     }
 }
@@ -86,7 +104,8 @@ async fn write_loop<S>(
     mut media_rx: mpsc::Receiver<Bytes>,
     mut ctrl_rx: mpsc::Receiver<VideoCtrl>,
     term_rx: &mut mpsc::Receiver<WsMessage>,
-) where
+) -> PumpEnd
+where
     S: Sink<WsMessage> + Unpin,
 {
     let mut ping =
@@ -99,30 +118,30 @@ async fn write_loop<S>(
                 if let Some(frame) = frame {
                     let _ = send(sink, frame).await;
                 }
-                return;
+                return PumpEnd::Terminated;
             }
             ctrl = ctrl_rx.recv() => match ctrl {
                 Some(VideoCtrl::Text(text)) => Outgoing::Control(WsMessage::Text(text.into())),
-                Some(VideoCtrl::Close) | None => return,
+                Some(VideoCtrl::Close) | None => return PumpEnd::Replaced,
             },
             _ = ping.tick() => Outgoing::Control(WsMessage::Ping(Bytes::new())),
             media = media_rx.recv() => match media {
                 Some(frame) => Outgoing::Media(frame),
-                None => return,
+                None => return PumpEnd::Replaced,
             },
         };
         match message {
             Outgoing::Control(message) => {
-                if !send(sink, message).await {
-                    return;
+                if let Err(end) = send(sink, message).await {
+                    return end;
                 }
             }
             Outgoing::Media(frame) => {
                 let len = frame.len();
                 let sent = send(sink, WsMessage::Binary(frame)).await;
                 room.video.release(index, epoch, generation, len);
-                if !sent {
-                    return;
+                if let Err(end) = sent {
+                    return end;
                 }
             }
         }
@@ -134,14 +153,15 @@ enum Outgoing {
     Media(Bytes),
 }
 
-async fn send<S>(sink: &mut S, message: WsMessage) -> bool
+async fn send<S>(sink: &mut S, message: WsMessage) -> Result<(), PumpEnd>
 where
     S: Sink<WsMessage> + Unpin,
 {
-    matches!(
-        tokio::time::timeout(WRITE_TIMEOUT, sink.send(message)).await,
-        Ok(Ok(()))
-    )
+    match tokio::time::timeout(WRITE_TIMEOUT, sink.send(message)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(_)) => Err(PumpEnd::WriteFailed),
+        Err(_) => Err(PumpEnd::WriteTimeout),
+    }
 }
 
 fn on_client(
@@ -150,11 +170,11 @@ fn on_client(
     epoch: u8,
     generation: u64,
     incoming: Option<Result<WsMessage, axum::Error>>,
-) -> bool {
+) -> Option<PumpEnd> {
     match incoming {
         Some(Ok(WsMessage::Text(text))) => {
             room.video.handle_control(index, epoch, generation, &text);
-            true
+            None
         }
         Some(Ok(WsMessage::Binary(bytes))) => {
             match classify_inbound(&bytes) {
@@ -166,9 +186,10 @@ fn on_client(
                 }
                 InboundFrame::Malformed => {}
             }
-            true
+            None
         }
-        Some(Ok(WsMessage::Ping(_))) | Some(Ok(WsMessage::Pong(_))) => true,
-        _ => false,
+        Some(Ok(WsMessage::Ping(_))) | Some(Ok(WsMessage::Pong(_))) => None,
+        Some(Ok(WsMessage::Close(_))) | None => Some(PumpEnd::ClientClosed),
+        Some(Err(error)) => Some(PumpEnd::ReadError(error.to_string())),
     }
 }

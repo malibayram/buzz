@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::flow_tests::{frame, publish_camera};
-use super::pump::{pump, PumpSockets, PING_INTERVAL, READ_IDLE};
+use super::pump::{pump, PumpEnd, PumpSockets, PING_INTERVAL, READ_IDLE};
 use crate::audio::room::Room;
 
 type Inbound = Pin<Box<dyn Stream<Item = Result<WsMessage, axum::Error>> + Send>>;
@@ -194,7 +194,8 @@ async fn a_silent_client_is_closed_after_the_idle_window() {
             cancel: &cancel,
         },
     );
-    tokio::time::timeout(READ_IDLE + Duration::from_secs(1), run)
+    let end = tokio::time::timeout(READ_IDLE + Duration::from_secs(1), run)
         .await
         .expect("pump must close a client that never answers");
+    assert_eq!(end, PumpEnd::ReadIdle);
 }
