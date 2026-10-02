@@ -12,7 +12,7 @@
 
 use futures_util::{SinkExt, StreamExt};
 use std::sync::{atomic::AtomicBool, Arc};
-use tokio_tungstenite::{connect_async, tungstenite::Message as WsMsg};
+use tokio_tungstenite::{connect_async_with_config, tungstenite::Message as WsMsg};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -36,6 +36,29 @@ pub(crate) fn validate_pubkey_hex(pubkey: &str) -> Result<(), String> {
 
 pub(crate) fn parse_channel_uuid(channel_id: &str) -> Result<Uuid, String> {
     Uuid::parse_str(channel_id).map_err(|_| format!("invalid channel UUID: {channel_id}"))
+}
+
+/// Opus bitrate for huddle speech. 48 kbps mono fullband leaves headroom for
+/// sibilants and room tone that 32 kbps audibly smeared.
+const VOICE_BITRATE_BPS: i32 = 48_000;
+
+/// Build the huddle speech encoder: 48 kHz mono VoIP, max complexity, DTX on.
+fn voice_encoder(label: &str) -> Result<opus::Encoder, String> {
+    let mut encoder = opus::Encoder::new(48_000, opus::Channels::Mono, opus::Application::Voip)
+        .map_err(|e| format!("{label} encoder: {e}"))?;
+    encoder
+        .set_bitrate(opus::Bitrate::Bits(VOICE_BITRATE_BPS))
+        .map_err(|e| format!("{label} bitrate: {e}"))?;
+    encoder
+        .set_complexity(10)
+        .map_err(|e| format!("{label} complexity: {e}"))?;
+    encoder
+        .set_signal(opus::Signal::Voice)
+        .map_err(|e| format!("{label} signal: {e}"))?;
+    encoder
+        .set_dtx(true)
+        .map_err(|e| format!("{label} dtx: {e}"))?;
+    Ok(encoder)
 }
 
 /// Handshake timeout — matches the server's AUTH_TIMEOUT (5 s).
@@ -80,7 +103,9 @@ async fn connect_authenticated_audio_socket(
     use nostr::JsonUtil;
 
     let ws_url = format!("{relay_url}/huddle/{channel_id}/audio");
-    let (ws_stream, _) = connect_async(&ws_url)
+    // Nagle would batch 20 ms Opus frames into bursts the remote jitter
+    // buffers must absorb; every huddle audio frame is latency-bound.
+    let (ws_stream, _) = connect_async_with_config(&ws_url, None, true)
         .await
         .map_err(|e| format!("audio WS connect failed: {e}"))?;
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
@@ -376,14 +401,7 @@ async fn run_tts_audio_publisher(
     use super::wire::{audio_level_dbov, FrameHeader, V2_HEADER_LEN};
     use std::sync::atomic::Ordering;
 
-    let mut encoder = opus::Encoder::new(48_000, opus::Channels::Mono, opus::Application::Voip)
-        .map_err(|error| format!("tts opus encoder: {error}"))?;
-    encoder
-        .set_bitrate(opus::Bitrate::Bits(32_000))
-        .map_err(|error| format!("tts opus bitrate: {error}"))?;
-    encoder
-        .set_dtx(true)
-        .map_err(|error| format!("tts opus dtx: {error}"))?;
+    let mut encoder = voice_encoder("tts opus")?;
 
     let mut sequence = 0_u16;
     let mut timestamp_48k = 0_u32;
@@ -492,14 +510,7 @@ async fn audio_relay_pipeline(args: AudioRelayPipelineArgs) -> Result<(), String
         protocol,
     } = args;
 
-    let mut encoder = opus::Encoder::new(48000, opus::Channels::Mono, opus::Application::Voip)
-        .map_err(|e| format!("opus encoder: {e}"))?;
-    encoder
-        .set_bitrate(opus::Bitrate::Bits(32000))
-        .map_err(|e| format!("opus bitrate: {e}"))?;
-    encoder
-        .set_dtx(true)
-        .map_err(|e| format!("opus dtx: {e}"))?;
+    let encoder = voice_encoder("opus")?;
 
     let sink_handle = super::audio_output::open_output_sink_by_name(output_device_name.as_deref())?;
 

@@ -57,8 +57,10 @@ pub const PLAYOUT_SAMPLES: usize = (SAMPLE_RATE_HZ as usize / 1000) * 10; // 480
 
 /// Minimum jitter delay NetEq is allowed to converge to (ms).
 const MIN_DELAY_MS: u32 = 40;
-/// Maximum jitter delay NetEq is allowed to converge to (ms).
-const MAX_DELAY_MS: u32 = 200;
+/// Maximum jitter delay NetEq is allowed to converge to (ms). Huddle audio
+/// rides TCP, often through a tunnel, so loss shows up as delivery stalls
+/// rather than gaps; 200 ms underflowed on ordinary retransmits.
+const MAX_DELAY_MS: u32 = 300;
 /// Buffer cap in packets — generous, but bounded so a runaway sender can't
 /// drive memory growth.
 const MAX_PACKETS_IN_BUFFER: usize = 50;

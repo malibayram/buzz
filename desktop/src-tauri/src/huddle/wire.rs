@@ -370,17 +370,21 @@ mod tests {
     #[test]
     fn v4_relay_frame_carries_the_occupancy_epoch() {
         let mut bytes = vec![3, 9];
-        bytes.extend_from_slice(&FrameHeader {
-            seq: 1,
-            ts_48k: 960,
-            level_dbov: -4,
-            flags: 0,
-        }
-        .encode());
+        bytes.extend_from_slice(
+            &FrameHeader {
+                seq: 1,
+                ts_48k: 960,
+                level_dbov: -4,
+                flags: 0,
+            }
+            .encode(),
+        );
         bytes.push(0x11);
-        let (peer, epoch, header, opus) =
-            parse_versioned_relay_frame(&bytes, 4).expect("v4 frame");
-        assert_eq!((peer, epoch, header.seq, opus), (3, Some(9), 1, &bytes[10..]));
+        let (peer, epoch, header, opus) = parse_versioned_relay_frame(&bytes, 4).expect("v4 frame");
+        assert_eq!(
+            (peer, epoch, header.seq, opus),
+            (3, Some(9), 1, &bytes[10..])
+        );
         assert!(parse_versioned_relay_frame(&bytes[..1], 4).is_none());
     }
 }
