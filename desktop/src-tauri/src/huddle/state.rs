@@ -370,10 +370,12 @@ mod tests {
 
     #[test]
     fn teardown_clears_the_video_handoff() {
-        let mut state = HuddleState::default();
-        state.video_handoff = super::super::video_auth::VideoHandoff {
-            camera: true,
-            screen: true,
+        let mut state = HuddleState {
+            video_handoff: super::super::video_auth::VideoHandoff {
+                camera: true,
+                screen: true,
+            },
+            ..HuddleState::default()
         };
         state.reset_preserving_generation();
         assert_eq!(state.video_handoff, Default::default());
