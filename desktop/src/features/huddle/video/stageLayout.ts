@@ -98,8 +98,12 @@ export function buildStageTiles({
           },
     );
   }
+  // The relay lists our own tracks too; our share is shown as a banner and
+  // its frames never come back to us, so it must not become a remote tile.
   const screens = remote
-    .filter((tile) => tile.track === TRACK_SCREEN)
+    .filter(
+      (tile) => tile.track === TRACK_SCREEN && lower(tile.pubkey) !== self,
+    )
     .map<StageTile>((tile) => ({
       key: tile.key,
       kind: "screen",

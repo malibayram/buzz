@@ -166,3 +166,19 @@ test("subscriptions: hidden tiles off, screens layer 0, large cameras layer 1", 
     "3:0:1": 0,
   });
 });
+
+test("our own published tracks never become remote tiles", () => {
+  const tiles = buildStageTiles({
+    participants: ["me", "bob"],
+    selfPubkey: "me",
+    remote: [screen("ME", 0), cam("me", 0), cam("bob", 1)],
+    localCamera: false,
+  });
+  assert.deepEqual(
+    tiles.map((t) => [t.kind, t.pubkey, t.isSelf]),
+    [
+      ["camera", "bob", false],
+      ["avatar", "me", true],
+    ],
+  );
+});

@@ -6,6 +6,7 @@ import {
   VideoOff,
 } from "lucide-react";
 
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
@@ -35,9 +36,15 @@ function ControlTooltip({
 
 export function VideoControls() {
   const video = useHuddleVideo();
+  const identity = useIdentityQuery();
   if (!video.enabled) return null;
+  const self = identity.data?.pubkey?.toLowerCase();
   const otherSharing =
-    !video.screenOn && video.tiles.some((tile) => tile.track === TRACK_SCREEN);
+    !video.screenOn &&
+    video.tiles.some(
+      (tile) =>
+        tile.track === TRACK_SCREEN && tile.pubkey.toLowerCase() !== self,
+    );
   const cameraLabel = !video.supported
     ? UNSUPPORTED
     : video.cameraOn
