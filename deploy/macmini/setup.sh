@@ -78,6 +78,13 @@ print(bytes(out).hex())
 PY
 }
 
+# Browser origins allowed to call the relay's HTTP API. The desktop app
+# sends some requests (e.g. invite minting) with WebView fetch, whose origin
+# is tauri://localhost on macOS and http(s)://tauri.localhost elsewhere.
+cors_origins() {
+  echo "https://$1,tauri://localhost,http://tauri.localhost,https://tauri.localhost"
+}
+
 set_env() {
   local key="$1" value="$2"
   if grep -qE "^${key}=" "${ENV_FILE}"; then
@@ -135,7 +142,7 @@ cmd_env() {
   set_env RELAY_URL "wss://${domain}"
   set_env BUZZ_MEDIA_BASE_URL "https://${domain}/media"
   set_env BUZZ_MEDIA_SERVER_DOMAIN "${domain}"
-  set_env BUZZ_CORS_ORIGINS "https://${domain}"
+  set_env BUZZ_CORS_ORIGINS "$(cors_origins "${domain}")"
   set_env RELAY_OWNER_PUBKEY "${owner_hex}"
   set_env BUZZ_RELAY_PRIVATE_KEY "$(openssl rand -hex 32)"
   set_env BUZZ_GIT_HOOK_HMAC_SECRET "$(openssl rand -hex 32)"
@@ -332,7 +339,7 @@ cmd_set_host() {
   set_env RELAY_URL "wss://${host}"
   set_env BUZZ_MEDIA_BASE_URL "https://${host}/media"
   set_env BUZZ_MEDIA_SERVER_DOMAIN "${host}"
-  set_env BUZZ_CORS_ORIGINS "https://${host}"
+  set_env BUZZ_CORS_ORIGINS "$(cors_origins "${host}")"
   echo "Relay hostname set to ${host}; restarting the relay…"
   "${COMPOSE_DIR}/run.sh" restart
 }
