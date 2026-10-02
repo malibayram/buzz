@@ -274,7 +274,19 @@ install_tunnel_agent() {
 PLIST
   plutil -lint "${plist}" >/dev/null || die "generated ${plist} is not a valid plist"
   launchctl bootout "gui/${uid}/${TUNNEL_AGENT_LABEL}" 2>/dev/null || true
-  launchctl bootstrap "gui/${uid}" "${plist}"
+  # bootout returns before launchd finishes tearing the old agent down; a
+  # bootstrap in that window fails with "5: Input/output error".
+  local attempt
+  for attempt in $(seq 1 20); do
+    launchctl print "gui/${uid}/${TUNNEL_AGENT_LABEL}" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+  for attempt in 1 2 3 4 5; do
+    launchctl bootstrap "gui/${uid}" "${plist}" 2>/dev/null && return 0
+    sleep 1
+  done
+  launchctl bootstrap "gui/${uid}" "${plist}" \
+    || die "could not start ${TUNNEL_AGENT_LABEL}; run: launchctl bootstrap gui/${uid} ${plist}"
 }
 
 wait_for_tunnel() {
