@@ -50,9 +50,9 @@ mod tts_playback;
 pub mod tts_settings;
 mod tts_voice_import;
 mod tts_voice_registry;
+mod video_auth;
 mod window;
 pub mod wire;
-mod video_auth;
 
 // ── Shared utilities ──────────────────────────────────────────────────────────
 
@@ -83,7 +83,10 @@ pub use commands::{
 pub use state::{HuddleJoinInfo, HuddlePhase, HuddleState, VoiceInputMode};
 pub use transcription::{set_huddle_transcription_enabled, start_stt_pipeline};
 pub use tts_settings::set_tts_enabled;
-pub use video_auth::{huddle_video_info, set_huddle_video_enabled, sign_huddle_video_auth};
+pub use video_auth::{
+    huddle_video_info, set_huddle_video_enabled, set_huddle_video_handoff, sign_huddle_video_auth,
+    take_huddle_video_handoff,
+};
 pub use window::{close_huddle_companion, open_huddle_window};
 
 // ── Imports ───────────────────────────────────────────────────────────────────

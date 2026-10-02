@@ -1,28 +1,49 @@
+import { invoke } from "@tauri-apps/api/core";
 import * as React from "react";
 
 import { useFeatureEnabled } from "@/shared/features";
-import type { VideoTile } from "./protocol";
+import type { LinkState } from "./linkSupervisor";
+import { TRACK_SCREEN, type VideoTile } from "./protocol";
 import { useLocalCapture } from "./videoCapture";
-import type { TileDecoder } from "./videoDecoder";
 import { noopVideoLink, type VideoLink } from "./videoTransport";
 import { useVideoConnection } from "./useVideoConnection";
 
 export type { VideoTile };
+export type LayoutPreference = "auto" | "grid" | "speaker";
 
 type VideoApi = {
   enabled: boolean;
+  /** WebCodecs exist here; without them camera and screen stay off. */
+  supported: boolean;
+  linkState: LinkState;
+  retry: () => void;
   cameraOn: boolean;
   screenOn: boolean;
   error: string | null;
+  clearError: () => void;
   tiles: VideoTile[];
-  spotlightKey: string | null;
+  stalled: ReadonlySet<string>;
   localCamera: MediaStream | null;
   localScreen: MediaStream | null;
+  cameraDevices: MediaDeviceInfo[];
+  cameraDeviceId: string;
+  setCameraDeviceId: (id: string) => void;
   toggleCamera: () => void;
   toggleScreen: () => void;
-  focusTile: (key: string) => void;
-  bindTile: (key: string, node: HTMLCanvasElement | null) => void;
+  pinnedKey: string | null;
+  setPinnedKey: (key: string | null) => void;
+  layout: LayoutPreference;
+  setLayout: (layout: LayoutPreference) => void;
+  bindTile: (
+    key: string,
+    node: HTMLCanvasElement | null,
+    large: boolean,
+  ) => () => void;
 };
+
+const LAYOUT_STORAGE_KEY = "buzz.huddle.videoLayout";
+/** `peer:epoch:track`, as built by `tileKey`. */
+const REMOTE_TILE_KEY = /^\d+:\d+:\d+$/;
 
 const VideoContext = React.createContext<VideoApi | null>(null);
 
@@ -43,11 +64,91 @@ export function useHuddleVideo(): VideoApi {
   return value;
 }
 
+function readLayout(): LayoutPreference {
+  try {
+    const stored = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (stored === "grid" || stored === "speaker") return stored;
+  } catch {
+    /* storage unavailable: fall back to auto */
+  }
+  return "auto";
+}
+
+/**
+ * When a new screen share starts it takes the stage once; a pin the viewer
+ * sets afterwards survives later roster and track changes.
+ */
+function useScreenSharePin(tiles: VideoTile[]) {
+  const [pinnedKey, setPinnedKey] = React.useState<string | null>(null);
+  const seenScreens = React.useRef(new Set<string>());
+  React.useEffect(() => {
+    const screens = tiles.filter((tile) => tile.track === TRACK_SCREEN);
+    const fresh = screens.some((tile) => !seenScreens.current.has(tile.key));
+    seenScreens.current = new Set(screens.map((tile) => tile.key));
+    if (fresh) setPinnedKey(null);
+  }, [tiles]);
+  React.useEffect(() => {
+    // Only a remote video tile can vanish under a pin; people and the local
+    // camera stay on the stage as avatars when their video stops.
+    if (!pinnedKey || !REMOTE_TILE_KEY.test(pinnedKey)) return;
+    if (!tiles.some((tile) => tile.key === pinnedKey)) setPinnedKey(null);
+  }, [pinnedKey, tiles]);
+  return { pinnedKey, setPinnedKey };
+}
+
+type VideoHandoff = { camera: boolean; screen: boolean };
+
+/**
+ * Video moves between the drawer and the room window with the huddle. The
+ * window giving it up records what was live; the one taking it over turns the
+ * camera back on (a screen share needs a fresh picker, so it asks instead).
+ */
+function useVideoHandoff(
+  local: ReturnType<typeof useLocalCapture>,
+  setError: (message: string | null) => void,
+) {
+  const live = React.useRef({ camera: false, screen: false });
+  live.current = { camera: local.cameraOn, screen: local.screenOn };
+  const localRef = React.useRef(local);
+  localRef.current = local;
+  const checked = React.useRef(false);
+  React.useEffect(
+    () => () => {
+      const { camera, screen } = live.current;
+      if (!camera && !screen) return;
+      void invoke("set_huddle_video_handoff", {
+        handoff: { camera, screen } satisfies VideoHandoff,
+      }).catch(() => undefined);
+    },
+    [],
+  );
+  return React.useCallback(
+    (link: VideoLink) => {
+      localRef.current.republish(link);
+      if (checked.current) return;
+      checked.current = true;
+      void invoke<VideoHandoff>("take_huddle_video_handoff")
+        .then((handoff) => {
+          if (handoff.camera && !live.current.camera) {
+            localRef.current.toggleCamera();
+          }
+          if (handoff.screen) {
+            setError(
+              "Screen sharing stopped when the huddle moved windows. Share again to continue.",
+            );
+          }
+        })
+        .catch(() => undefined);
+    },
+    [setError],
+  );
+}
+
 function useVideoSession(enabled: boolean): VideoApi {
   const [error, setError] = React.useState<string | null>(null);
+  const [layout, setLayoutState] = React.useState(readLayout);
   const linkRef = React.useRef<VideoLink>(noopVideoLink());
   const keysRef = React.useRef(new Set<string>());
-  const decoders = React.useRef(new Map<string, TileDecoder>());
   const wantsKey = React.useCallback((track: number, layer: number) => {
     const id = `${track}:${layer}`;
     const hit = keysRef.current.has(id);
@@ -57,31 +158,48 @@ function useVideoSession(enabled: boolean): VideoApi {
   const requestKey = React.useCallback((track: number, layer: number) => {
     keysRef.current.add(`${track}:${layer}`);
   }, []);
-  const local = useLocalCapture(linkRef, wantsKey, requestKey, setError);
+  const local = useLocalCapture({ linkRef, wantsKey, requestKey, setError });
+  const onLinkOpen = useVideoHandoff(local, setError);
   const connection = useVideoConnection({
     enabled,
     linkRef,
-    keysRef,
-    decoders,
+    requestKey,
+    onLinkOpen,
     release: local.release,
     setError,
   });
-  const focusTile = (key: string) => {
-    connection.setSpotlightKey(key);
-    connection.syncSubs(connection.tilesRef.current, key);
-  };
+  const { pinnedKey, setPinnedKey } = useScreenSharePin(connection.tiles);
+  const setLayout = React.useCallback((next: LayoutPreference) => {
+    setLayoutState(next);
+    try {
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, next);
+    } catch {
+      /* per-viewer convenience only */
+    }
+  }, []);
+  const clearError = React.useCallback(() => setError(null), []);
   return {
     enabled,
+    supported: local.supported,
+    linkState: connection.linkState,
+    retry: connection.retry,
     error,
+    clearError,
     tiles: connection.tiles,
-    spotlightKey: connection.spotlightKey,
-    focusTile,
+    stalled: connection.stalled,
     bindTile: connection.bindTile,
     cameraOn: local.cameraOn,
     screenOn: local.screenOn,
     localCamera: local.localCamera,
     localScreen: local.localScreen,
+    cameraDevices: local.cameraDevices,
+    cameraDeviceId: local.cameraDeviceId,
+    setCameraDeviceId: local.setCameraDeviceId,
     toggleCamera: local.toggleCamera,
     toggleScreen: local.toggleScreen,
+    pinnedKey,
+    setPinnedKey,
+    layout,
+    setLayout,
   };
 }

@@ -5,19 +5,19 @@ import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 
 const HUDDLE_CHANNEL_ID = "11111111-1111-4111-8111-111111111111";
 const HUDDLE_PARENT_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+const ALICE = TEST_IDENTITIES.alice.pubkey;
+const BOB = TEST_IDENTITIES.bob.pubkey;
 
-async function installFakeVideo(page: import("@playwright/test").Page) {
+type FakeVideoApi = {
+  log: string[];
+  connects: number;
+  push: (data: string) => void;
+  drop: () => void;
+};
+
+async function installFakeVideo(page: Page) {
   await page.addInitScript(() => {
-    const host = window as Window & {
-      __BUZZ_E2E_FAKE_VIDEO__?: {
-        log: unknown[];
-        push: (data: string) => void;
-        connect: (onMessage: (data: string) => void) => {
-          send: (data: string) => void;
-          close: () => void;
-        };
-      };
-    };
+    const host = window as Window & { __BUZZ_E2E_FAKE_VIDEO__?: unknown };
     const media = navigator.mediaDevices ?? ({} as MediaDevices);
     if (!navigator.mediaDevices) {
       Object.defineProperty(navigator, "mediaDevices", {
@@ -34,41 +34,101 @@ async function installFakeVideo(page: import("@playwright/test").Page) {
         return Promise.resolve(canvas.captureStream(5));
       },
     });
-    host.__BUZZ_E2E_FAKE_VIDEO__ = {
-      log: [],
-      push: () => undefined,
-      connect(onMessage) {
-        const api = host.__BUZZ_E2E_FAKE_VIDEO__;
-        if (!api) throw new Error("fake video missing");
-        api.push = onMessage;
+    const api = {
+      log: [] as string[],
+      connects: 0,
+      push: (_data: string) => undefined,
+      drop: () => undefined,
+      connect(onMessage: (data: string) => void, onClose?: () => void) {
+        api.connects += 1;
+        let open = true;
+        api.push = (data: string) => {
+          if (open) onMessage(data);
+        };
+        api.drop = () => {
+          open = false;
+          onClose?.();
+        };
         queueMicrotask(() =>
           onMessage(JSON.stringify({ type: "challenge", challenge: "e2e" })),
         );
         return {
-          send(data: string) {
+          send(data: string | ArrayBuffer) {
+            if (typeof data !== "string") return;
             api.log.push(data);
-            if (typeof data === "string" && data.includes('"type":"auth"')) {
+            if (data.includes('"type":"auth"')) {
               onMessage(
                 JSON.stringify({ type: "tracks", revision: 0, peers: [] }),
               );
             }
           },
-          close() {},
+          close() {
+            open = false;
+          },
         };
       },
     };
+    host.__BUZZ_E2E_FAKE_VIDEO__ = api;
   });
+}
+
+function fake(page: Page) {
+  return {
+    push: (message: unknown) =>
+      page.evaluate((text) => {
+        (
+          window as Window & { __BUZZ_E2E_FAKE_VIDEO__?: FakeVideoApi }
+        ).__BUZZ_E2E_FAKE_VIDEO__?.push(text);
+      }, JSON.stringify(message)),
+    drop: () =>
+      page.evaluate(() => {
+        (
+          window as Window & { __BUZZ_E2E_FAKE_VIDEO__?: FakeVideoApi }
+        ).__BUZZ_E2E_FAKE_VIDEO__?.drop();
+      }),
+    sent: () =>
+      page.evaluate(
+        () =>
+          (window as Window & { __BUZZ_E2E_FAKE_VIDEO__?: FakeVideoApi })
+            .__BUZZ_E2E_FAKE_VIDEO__?.log ?? [],
+      ),
+    connects: () =>
+      page.evaluate(
+        () =>
+          (window as Window & { __BUZZ_E2E_FAKE_VIDEO__?: FakeVideoApi })
+            .__BUZZ_E2E_FAKE_VIDEO__?.connects ?? 0,
+      ),
+  };
+}
+
+function trackDelta(
+  peerIndex: number,
+  pubkey: string,
+  tracks: number[],
+  revision: number,
+) {
+  return {
+    type: "track_delta",
+    revision,
+    peer_index: peerIndex,
+    epoch: 1,
+    pubkey,
+    tracks: tracks.map((track) => ({
+      track,
+      codec: "avc1.42E01F",
+      layers: [],
+    })),
+  };
 }
 
 // `toBeVisible` ignores occlusion, so it passed while the stage rendered
 // underneath the huddle room surface. Assert the element is what a user
 // actually sees at its own center point.
-async function expectOnTop(page: Page, testId: string) {
-  const target = page.getByTestId(testId);
-  await expect(target).toBeVisible();
+async function expectOnTop(locator: ReturnType<Page["locator"]>) {
+  await expect(locator).toBeVisible();
   await expect
     .poll(() =>
-      target.evaluate((el) => {
+      locator.evaluate((el) => {
         const rect = el.getBoundingClientRect();
         const hit = document.elementFromPoint(
           rect.left + rect.width / 2,
@@ -80,80 +140,142 @@ async function expectOnTop(page: Page, testId: string) {
     .toBe(true);
 }
 
-test("toggles camera and screen, then drops a remote tile", async ({
-  page,
-}) => {
+async function openHuddle(page: Page, windowLabel: string) {
   await installFakeCamera(page);
   await installFakeVideo(page);
   await installMockBridge(page, {
-    windowLabel: `huddle-${HUDDLE_CHANNEL_ID}`,
+    windowLabel,
     huddle: {
       parentChannelId: HUDDLE_PARENT_ID,
       ephemeralChannelId: HUDDLE_CHANNEL_ID,
       phase: "active",
-      members: [{ pubkey: TEST_IDENTITIES.tyler.pubkey, role: "member" }],
+      members: [
+        { pubkey: TEST_IDENTITIES.tyler.pubkey, role: "member" },
+        { pubkey: ALICE, role: "member" },
+      ],
     },
   });
   await page.goto("/");
+}
+
+test("room window: camera, presenting banner, named tiles and pinning", async ({
+  page,
+}) => {
+  await openHuddle(page, `huddle-${HUDDLE_CHANNEL_ID}`);
+  const video = fake(page);
 
   const camera = page.getByTestId("huddle-camera-toggle");
   await expect(camera).toBeVisible();
   await camera.click();
   await expect(camera).toHaveAttribute("aria-pressed", "true");
-  await expectOnTop(page, "huddle-local-camera");
+  await expectOnTop(page.getByTestId("huddle-local-camera"));
+  await expect
+    .poll(async () =>
+      (await video.sent()).some((m) => m.includes('"type":"publish"')),
+    )
+    .toBe(true);
 
+  // Sharing your own screen shows a banner, never a mirror of your screen.
   const screen = page.getByTestId("huddle-screen-toggle");
   await screen.focus();
   await page.keyboard.press("Enter");
   await expect(screen).toHaveAttribute("aria-pressed", "true");
-  await expectOnTop(page, "huddle-screen-spotlight");
-  await expect(page.getByTestId("huddle-sharing-indicator")).toBeVisible();
+  await expectOnTop(page.getByTestId("huddle-presenting-banner"));
+  await expect(page.getByTestId("huddle-screen-tile")).toHaveCount(0);
 
-  await page.evaluate(() => {
-    const fake = (
-      window as Window & {
-        __BUZZ_E2E_FAKE_VIDEO__?: { push: (data: string) => void };
-      }
-    ).__BUZZ_E2E_FAKE_VIDEO__;
-    fake?.push(JSON.stringify({ type: "error", code: "screen_share_busy" }));
-  });
-  await expect(page.getByTestId("huddle-video-error")).toHaveText(
+  await video.push({ type: "error", code: "screen_share_busy" });
+  await expect(page.getByTestId("huddle-video-error")).toContainText(
     "Someone else is sharing their screen",
   );
+  await page.getByTestId("huddle-stop-presenting").click();
+  await expect(screen).toHaveAttribute("aria-pressed", "false");
 
-  await page.evaluate(() => {
-    const fake = (
-      window as Window & {
-        __BUZZ_E2E_FAKE_VIDEO__?: { push: (data: string) => void };
-      }
-    ).__BUZZ_E2E_FAKE_VIDEO__;
-    fake?.push(
-      JSON.stringify({
-        type: "track_delta",
-        revision: 2,
-        peer_index: 4,
-        epoch: 1,
-        pubkey: "abc",
-        tracks: [{ track: 0, codec: "avc1.42E01F", layers: [] }],
-      }),
-    );
-  });
-  await expectOnTop(page, "huddle-video-tile");
-  await page.evaluate(() => {
-    (
-      window as Window & {
-        __BUZZ_E2E_FAKE_VIDEO__?: { push: (data: string) => void };
-      }
-    ).__BUZZ_E2E_FAKE_VIDEO__?.push(
-      JSON.stringify({
-        type: "track_delta",
-        revision: 3,
-        peer_index: 4,
-        epoch: 1,
-        pubkey: "abc",
-        tracks: [],
-      }),
-    );
-  });
-  await expect(page.getByTestId("huddle-video-tile")).toHaveCount(0);
+  // A remote camera gets a named tile and a subscription.
+  await video.push(trackDelta(4, ALICE, [0], 2));
+  const aliceTile = page.locator('[data-tile-key="4:1:0"]');
+  await expectOnTop(aliceTile);
+  await expect(aliceTile).toHaveAttribute("aria-label", /camera on/);
+  await expect
+    .poll(async () =>
+      (await video.sent()).some(
+        (m) => m.includes('"type":"subscribe"') && m.includes('"peer_index":4'),
+      ),
+    )
+    .toBe(true);
+
+  // Pinning switches to the presentation layout with that tile as main.
+  await aliceTile.hover();
+  await aliceTile.getByTestId("huddle-tile-pin").click();
+  await expect(page.getByTestId("huddle-stage-presentation")).toBeVisible();
+
+  // A screen share that starts later takes the stage once...
+  await video.push(trackDelta(5, BOB, [1], 3));
+  await expectOnTop(page.getByTestId("huddle-screen-tile").first());
+  // ...and a pin made afterwards survives later track changes.
+  await aliceTile.hover();
+  await aliceTile.getByTestId("huddle-tile-pin").click();
+  await video.push(trackDelta(5, BOB, [1], 4));
+  await expect(aliceTile.getByTestId("huddle-tile-pin")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await video.push(trackDelta(4, ALICE, [], 5));
+  await expect(aliceTile).toHaveCount(0);
+});
+
+test("drawer mode shows remote video in a dock", async ({ page }) => {
+  await openHuddle(page, "main");
+  const video = fake(page);
+  await expect.poll(() => video.connects()).toBe(1);
+  await video.push(trackDelta(4, ALICE, [0], 2));
+  const dock = page.getByTestId("huddle-video-dock");
+  await expectOnTop(dock);
+  await expect(dock.locator('[data-tile-key="4:1:0"]')).toBeVisible();
+  await expect(page.getByTestId("huddle-video-dock-expand")).toBeVisible();
+});
+
+test("a dropped video socket reconnects and re-announces the camera", async ({
+  page,
+}) => {
+  await openHuddle(page, `huddle-${HUDDLE_CHANNEL_ID}`);
+  const video = fake(page);
+  await page.getByTestId("huddle-camera-toggle").click();
+  await expect(page.getByTestId("huddle-camera-toggle")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await video.push(trackDelta(4, ALICE, [0], 2));
+  await expect(page.locator('[data-tile-key="4:1:0"]')).toBeVisible();
+  const before = (await video.sent()).length;
+
+  await video.drop();
+  await expect(page.getByTestId("huddle-video-link-status")).toContainText(
+    "Reconnecting",
+  );
+  // The stage (and the status above) stays up through the outage.
+  await expect(page.locator('[data-tile-key="4:1:0"]')).toBeVisible();
+  await expect.poll(() => video.connects(), { timeout: 5000 }).toBe(2);
+  await expect(page.getByTestId("huddle-video-link-status")).toHaveCount(0);
+  // The new socket must hear about our camera again without a toggle.
+  await expect
+    .poll(async () =>
+      (await video.sent())
+        .slice(before)
+        .some((m) => m.includes('"type":"publish"')),
+    )
+    .toBe(true);
+  // The relay re-sends the roster; tiles and subscriptions come back.
+  await video.push(trackDelta(4, ALICE, [0], 3));
+  await expect(page.locator('[data-tile-key="4:1:0"]')).toBeVisible();
+  await expect
+    .poll(async () =>
+      (await video.sent())
+        .slice(before)
+        .some(
+          (m) =>
+            m.includes('"type":"subscribe"') && m.includes('"peer_index":4'),
+        ),
+    )
+    .toBe(true);
 });

@@ -44,21 +44,49 @@ export type AudioWorkletHandle = {
  *   global shortcut. The worklet sends audio while either path is open and
  *   discards frames only when both are closed.
  *
- * @param audioTrack - Mic track from LiveKit
+ * @param audioTrack - Mic track from getUserMedia
  * @param initialMode - Whether the push-to-talk shortcut is enabled.
  * @param initiallyManuallyUnmuted - Initial state of the clickable mic control.
+ * @param onCaptureLost - The track ended or the context closed underneath us.
  */
 export async function setupAudioWorklet(
   audioTrack: MediaStreamTrack,
   initialMode: "push_to_talk" | "voice_activity" = "voice_activity",
   initiallyManuallyUnmuted = true,
+  onCaptureLost: () => void = () => undefined,
 ): Promise<AudioWorkletHandle> {
   const audioContext = new AudioContext({ sampleRate: 48000 });
+  let stopping = false;
 
   // Resume after user gesture (required by autoplay policy)
   if (audioContext.state === "suspended") {
     await audioContext.resume();
   }
+
+  // The OS or WebKit can interrupt capture underneath us (another page
+  // starting a camera, a device unplugged, an audio-session interruption).
+  // Log every transition so it shows up in reports, resume an interrupted
+  // context, and hand a dead track back to the owner to re-acquire.
+  const onContextState = () => {
+    const state = audioContext.state as AudioContextState | "interrupted";
+    if (stopping) return;
+    console.warn(`[huddle-audio] AudioContext ${state}`);
+    if (state === "suspended" || state === "interrupted") {
+      void audioContext.resume().catch(() => undefined);
+    }
+    if (state === "closed") onCaptureLost();
+  };
+  const onTrackMute = () => console.warn("[huddle-audio] mic track muted");
+  const onTrackUnmute = () => console.warn("[huddle-audio] mic track unmuted");
+  const onTrackEnded = () => {
+    if (stopping) return;
+    console.warn("[huddle-audio] mic track ended");
+    onCaptureLost();
+  };
+  audioContext.addEventListener("statechange", onContextState);
+  audioTrack.addEventListener("mute", onTrackMute);
+  audioTrack.addEventListener("unmute", onTrackUnmute);
+  audioTrack.addEventListener("ended", onTrackEnded);
 
   // Load the worklet processor (must live in public/ for Vite to serve it)
   await audioContext.audioWorklet.addModule("/worklet.js");
@@ -123,6 +151,11 @@ export async function setupAudioWorklet(
 
   return {
     stop: () => {
+      stopping = true;
+      audioContext.removeEventListener("statechange", onContextState);
+      audioTrack.removeEventListener("mute", onTrackMute);
+      audioTrack.removeEventListener("unmute", onTrackUnmute);
+      audioTrack.removeEventListener("ended", onTrackEnded);
       workletNode.port.onmessage = null;
       pttUnlisten?.();
       source.disconnect();

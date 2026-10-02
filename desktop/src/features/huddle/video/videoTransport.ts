@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import {
+  type LayerSpec,
   type PeerTracks,
   type RelayVideoFrame,
   cameraPublish,
@@ -19,8 +20,8 @@ export type VideoEvents = {
 };
 
 export type VideoLink = {
-  publishCamera: () => void;
-  publishScreen: (width: number, height: number) => void;
+  publishCamera: (layers: LayerSpec[]) => void;
+  publishScreen: (layer: LayerSpec) => void;
   unpublish: (track: number) => void;
   subscribe: (
     peerIndex: number,
@@ -29,6 +30,8 @@ export type VideoLink = {
     layer: number | null,
   ) => void;
   sendFrame: (bytes: Uint8Array) => void;
+  /** Bytes queued in the socket but not yet handed to the network. */
+  backlog: () => number;
   close: () => void;
 };
 
@@ -38,7 +41,10 @@ type FakeConn = {
 };
 
 type FakeVideo = {
-  connect: (onMessage: (data: string | ArrayBuffer) => void) => FakeConn;
+  connect: (
+    onMessage: (data: string | ArrayBuffer) => void,
+    onClose?: () => void,
+  ) => FakeConn;
 };
 
 type VideoInfo = {
@@ -46,6 +52,8 @@ type VideoInfo = {
   relay_url: string;
   parent_channel_id: string;
 };
+
+const HANDSHAKE_TIMEOUT_MS = 5000;
 
 function fakeVideo(): FakeVideo | null {
   const host = window as Window & { __BUZZ_E2E_FAKE_VIDEO__?: FakeVideo };
@@ -59,34 +67,46 @@ export function noopVideoLink(): VideoLink {
     unpublish: () => undefined,
     subscribe: () => undefined,
     sendFrame: () => undefined,
+    backlog: () => 0,
     close: () => undefined,
   };
 }
 
+/**
+ * One authenticated video socket. Resolves once auth is sent and rejects when
+ * the socket or handshake fails; `onClose` fires once if an open link drops.
+ * Reconnecting is the caller's job (see `linkSupervisor`).
+ */
 export async function openVideoLink(
   events: VideoEvents,
-  alive: () => boolean,
+  onClose: () => void,
 ): Promise<VideoLink> {
   const host = window as Window & { __BUZZ_E2E__?: unknown };
   const fake = fakeVideo();
   if (host.__BUZZ_E2E__ != null && !fake) return noopVideoLink();
   const info = await invoke<VideoInfo>("huddle_video_info");
-  if (!alive()) return noopVideoLink();
-  const socket = fake ? null : new WebSocket(info.url);
-  if (socket) socket.binaryType = "arraybuffer";
-  let conn: FakeConn | null = null;
+  let closed = false;
+  let opened = false;
+  const notifyClosed = () => {
+    if (closed) return;
+    closed = true;
+    if (opened) onClose();
+  };
   let resolveChallenge: (value: string) => void = () => undefined;
-  const challenge = new Promise<string>((resolve) => {
+  let rejectChallenge: (error: Error) => void = () => undefined;
+  const challenge = new Promise<string>((resolve, reject) => {
     resolveChallenge = resolve;
+    rejectChallenge = reject;
   });
   const deliver = (data: string | ArrayBuffer) => {
+    if (closed) return;
     if (typeof data !== "string") {
       const frame = decodeRelayFrame(data);
-      if (frame && alive()) events.onFrame(frame);
+      if (frame) events.onFrame(frame);
       return;
     }
     const message = parseControl(data);
-    if (!message || !alive()) return;
+    if (!message) return;
     if (message.type === "challenge" && typeof message.challenge === "string") {
       resolveChallenge(message.challenge);
       return;
@@ -107,82 +127,107 @@ export async function openVideoLink(
       events.onError(message.code);
     }
   };
-  if (fake) conn = fake.connect(deliver);
-  if (socket) socket.onmessage = (event) => accept(event.data, deliver);
-  if (!fake) await waitOpen(socket);
-  if (!alive()) {
-    conn?.close();
-    socket?.close();
-    return noopVideoLink();
-  }
-  const signed = await Promise.race([
-    challenge,
-    new Promise<null>((resolve) =>
-      window.setTimeout(() => resolve(null), 5000),
-    ),
-  ]);
-  if (!alive() || !signed) {
-    conn?.close();
-    socket?.close();
-    return noopVideoLink();
-  }
-  const event = await invoke("sign_huddle_video_auth", {
-    challenge: signed,
-    relayUrl: info.relay_url,
-  });
-  if (!alive()) {
-    conn?.close();
-    socket?.close();
-    return noopVideoLink();
-  }
-  const sendRaw = (data: string | ArrayBuffer) => {
-    conn?.send(data);
-    if (socket && socket.readyState === WebSocket.OPEN) socket.send(data);
+  const lost = () => {
+    rejectChallenge(new Error("Video connection closed"));
+    notifyClosed();
   };
-  sendRaw(
-    JSON.stringify({
-      type: "auth",
-      event,
-      parent_channel_id: info.parent_channel_id,
-      protocol_version: 4,
-    }),
-  );
-  const sendJson = (body: unknown) => sendRaw(JSON.stringify(body));
-  return {
-    publishCamera: () => sendJson(cameraPublish()),
-    publishScreen: (width, height) => sendJson(screenPublish(width, height)),
-    unpublish: (track) => sendJson({ type: "unpublish", track }),
-    subscribe: (peerIndex, epoch, track, layer) =>
-      sendJson({
-        type: "subscribe",
-        peer_index: peerIndex,
-        epoch,
-        track,
-        layer,
+
+  let conn: FakeConn | null = null;
+  let socket: WebSocket | null = null;
+  if (fake) {
+    conn = fake.connect(deliver, lost);
+  } else {
+    socket = new WebSocket(info.url);
+    socket.binaryType = "arraybuffer";
+    socket.onmessage = (event) => {
+      if (typeof event.data === "string" || event.data instanceof ArrayBuffer) {
+        deliver(event.data);
+      }
+    };
+    socket.onclose = lost;
+    socket.onerror = lost;
+  }
+  const shut = () => {
+    closed = true;
+    conn?.close();
+    socket?.close();
+  };
+  try {
+    if (socket) await waitOpen(socket);
+    const signed = await withTimeout(challenge, HANDSHAKE_TIMEOUT_MS);
+    const event = await invoke("sign_huddle_video_auth", {
+      challenge: signed,
+      relayUrl: info.relay_url,
+    });
+    if (closed) throw new Error("Video connection closed");
+    const sendRaw = (data: string | ArrayBuffer) => {
+      if (closed) return;
+      conn?.send(data);
+      if (socket?.readyState === WebSocket.OPEN) socket.send(data);
+    };
+    sendRaw(
+      JSON.stringify({
+        type: "auth",
+        event,
+        parent_channel_id: info.parent_channel_id,
+        protocol_version: 4,
       }),
-    sendFrame: (bytes) => {
-      const copy = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(copy).set(bytes);
-      sendRaw(copy);
-    },
-    close: () => {
-      conn?.close();
-      socket?.close();
-    },
-  };
+    );
+    opened = true;
+    const sendJson = (body: unknown) => sendRaw(JSON.stringify(body));
+    return {
+      publishCamera: (layers) => sendJson(cameraPublish(layers)),
+      publishScreen: (layer) => sendJson(screenPublish(layer)),
+      unpublish: (track) => sendJson({ type: "unpublish", track }),
+      subscribe: (peerIndex, epoch, track, layer) =>
+        sendJson({
+          type: "subscribe",
+          peer_index: peerIndex,
+          epoch,
+          track,
+          layer,
+        }),
+      sendFrame: (bytes) => {
+        const copy = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(copy).set(bytes);
+        sendRaw(copy);
+      },
+      backlog: () => socket?.bufferedAmount ?? 0,
+      close: shut,
+    };
+  } catch (error) {
+    shut();
+    throw error;
+  }
 }
 
-function accept(data: unknown, deliver: (value: string | ArrayBuffer) => void) {
-  if (typeof data === "string" || data instanceof ArrayBuffer) deliver(data);
-}
-
-function waitOpen(socket: WebSocket | null): Promise<void> {
+function waitOpen(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.OPEN) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    if (!socket) {
-      reject(new Error("video socket missing"));
-      return;
-    }
-    socket.onopen = () => resolve();
-    socket.onerror = () => reject(new Error("video socket failed"));
+    socket.addEventListener("open", () => resolve(), { once: true });
+    socket.addEventListener(
+      "close",
+      () => reject(new Error("Video connection failed")),
+      { once: true },
+    );
+  });
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error("Video handshake timed out")),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
   });
 }

@@ -13,6 +13,7 @@ import {
   PopoverTrigger,
 } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { looksLikeHeadsetMic } from "../lib/micCapture";
 import type { AudioInputDevice } from "../lib/useAudioDevices";
 
 type VoiceInputMode = "push_to_talk" | "voice_activity";
@@ -53,6 +54,14 @@ const MIC_METER_IDLE_HEIGHTS: [number, number, number] = [
   MIC_METER_IDLE_HEIGHT_REM,
   MIC_METER_IDLE_HEIGHT_REM,
 ];
+
+/** Label of the input in use: the chosen one, else the system default. */
+function activeInputLabel(devices: AudioInputDevice[], selectedId: string) {
+  const match =
+    devices.find((d) => d.deviceId === (selectedId || "default")) ??
+    (selectedId ? undefined : devices[0]);
+  return match?.label ?? "";
+}
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
@@ -266,8 +275,19 @@ export function MicControls({
             }))}
             selectedId={selectedDeviceId}
             onSelect={onSelectDevice}
-            showChangeHint={!!selectedDeviceId && micConnected}
+            showChangeHint={false}
           />
+          {looksLikeHeadsetMic(
+            activeInputLabel(audioDevices, selectedDeviceId),
+          ) ? (
+            <p
+              className="rounded-md bg-amber-500/10 px-2 py-1.5 text-2xs text-amber-700 dark:text-amber-300"
+              data-testid="huddle-headset-mic-hint"
+            >
+              Headset mics switch Bluetooth to low-quality call audio for
+              everyone. Pick your computer's microphone for clearer sound.
+            </p>
+          ) : null}
           <div>
             <label
               htmlFor="mic-volume"

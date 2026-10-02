@@ -73,11 +73,12 @@ use huddle::{
     check_pipeline_hotstart, close_huddle_companion, confirm_huddle_active, download_voice_models,
     end_huddle, get_huddle_agent_pubkeys, get_huddle_state, get_model_status, get_voice_input_mode,
     huddle_video_info, interrupt_huddle_speech, join_huddle, leave_huddle, open_huddle_window,
-    push_audio_pcm, set_huddle_video_enabled, sign_huddle_video_auth,
+    push_audio_pcm,
     reconnect::reconnect_huddle_audio,
     remove_agent_from_huddle, set_huddle_manual_mic_unmuted, set_huddle_transcription_enabled,
-    set_tts_enabled, set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
-    HuddlePhase,
+    set_huddle_video_enabled, set_huddle_video_handoff, set_tts_enabled, set_voice_input_mode,
+    sign_huddle_video_auth, speak_agent_message, start_huddle, start_stt_pipeline,
+    take_huddle_video_handoff, HuddlePhase,
 };
 use initial_window::*;
 use managed_agents::{
@@ -808,6 +809,8 @@ pub fn run() {
             set_huddle_video_enabled,
             huddle_video_info,
             sign_huddle_video_auth,
+            set_huddle_video_handoff,
+            take_huddle_video_handoff,
             join_huddle,
             leave_huddle,
             end_huddle,

@@ -3,7 +3,9 @@ import { emit, listen } from "@tauri-apps/api/event";
 import * as React from "react";
 
 import { useFeatureEnabled } from "@/shared/features";
-import { setupAudioWorklet, type AudioWorkletHandle } from "./lib/audioWorklet";
+import type { AudioWorkletHandle } from "./lib/audioWorklet";
+import { acquireMic } from "./lib/micCapture";
+import { useCaptureHandover } from "./lib/useCaptureHandover";
 import { type AudioInputDevice, useAudioDevices } from "./lib/useAudioDevices";
 import { usePipelineHotstart } from "./lib/usePipelineHotstart";
 import { formatHuddleActionError } from "./lib/huddleError";
@@ -66,6 +68,7 @@ const HuddleLevelsContext = React.createContext<HuddleLevelsValue | null>(null);
 export function HuddleProvider({
   children,
   ownsAudioSession = true,
+  capturePreferred = ownsAudioSession,
   onHuddleStartPendingChange,
   onHuddleStarted,
   onShowHuddleInMainApp,
@@ -74,6 +77,12 @@ export function HuddleProvider({
   children: React.ReactNode;
   /** A companion huddle window mirrors the session but must not end it on close. */
   ownsAudioSession?: boolean;
+  /**
+   * This window shows huddle video, so it should also hold the microphone:
+   * WebKit mutes capture in other pages when one page starts a camera.
+   * Ownership moves by handover (see `useCaptureHandover`).
+   */
+  capturePreferred?: boolean;
   /** Keeps the main-app drawer suppressed while a new huddle is handed to its companion window. */
   onHuddleStartPendingChange?: (pending: boolean) => void;
   /** Called after a huddle has connected its local audio. */
@@ -91,6 +100,9 @@ export function HuddleProvider({
       enabled: huddleVideoRef.current,
     });
   }, []);
+  const [ownsCapture, setOwnsCapture] = React.useState(
+    ownsAudioSession && capturePreferred,
+  );
   const workletRef = React.useRef<AudioWorkletHandle | null>(null);
   const tokenRef = React.useRef(0);
   const busyRef = React.useRef(false);
@@ -137,24 +149,24 @@ export function HuddleProvider({
     micGain: localMicGain,
     setMicGain: setLocalMicGain,
   } = useAudioDevices(workletRef);
-  const audioDevices = ownsAudioSession
+  const audioDevices = ownsCapture
     ? localAudioDevices
     : (mirroredAudioState?.audioDevices ?? []);
-  const selectedDeviceId = ownsAudioSession
+  const selectedDeviceId = ownsCapture
     ? localSelectedDeviceId
     : (mirroredAudioState?.selectedDeviceId ?? "");
-  const micGain = ownsAudioSession
+  const micGain = ownsCapture
     ? localMicGain
     : (mirroredAudioState?.micGain ?? 1);
-  const effectiveVoiceInputMode = ownsAudioSession
+  const effectiveVoiceInputMode = ownsCapture
     ? voiceInputMode
     : (mirroredAudioState?.voiceInputMode ?? voiceInputMode);
-  const effectiveIsMuted = ownsAudioSession
+  const effectiveIsMuted = ownsCapture
     ? locallyMuted
     : (mirroredAudioState?.isMuted ?? true);
   const setSelectedDeviceId = React.useCallback(
     (deviceId: string) => {
-      if (ownsAudioSession) {
+      if (ownsCapture) {
         setLocalSelectedDeviceId(deviceId);
         return;
       }
@@ -166,12 +178,12 @@ export function HuddleProvider({
         deviceId,
       } satisfies HuddleAudioCommand);
     },
-    [ownsAudioSession, setLocalSelectedDeviceId],
+    [ownsCapture, setLocalSelectedDeviceId],
   );
   const setMicGain = React.useCallback(
     (gain: number) => {
       const clamped = Math.max(0, Math.min(1, gain));
-      if (ownsAudioSession) {
+      if (ownsCapture) {
         setLocalMicGain(clamped);
         return;
       }
@@ -183,7 +195,7 @@ export function HuddleProvider({
         gain: clamped,
       } satisfies HuddleAudioCommand);
     },
-    [ownsAudioSession, setLocalMicGain],
+    [ownsCapture, setLocalMicGain],
   );
   /** Audio output devices from Rust backend */
   const [outputDevices, setOutputDevices] = React.useState<
@@ -241,7 +253,7 @@ export function HuddleProvider({
       void invoke("set_huddle_manual_mic_unmuted", {
         enabled: !isMutedRef.current,
       }).catch(() => {});
-      if (ownsAudioSession) {
+      if (ownsCapture) {
         workletRef.current?.setMode(mode);
       } else {
         void emit(HUDDLE_AUDIO_COMMAND_EVENT, {
@@ -250,7 +262,7 @@ export function HuddleProvider({
         } satisfies HuddleAudioCommand);
       }
     },
-    [ownsAudioSession, setVoiceInputModeState],
+    [ownsCapture, setVoiceInputModeState],
   );
 
   // Keep disconnectMedia stable so setting the track cannot re-fire the
@@ -262,13 +274,13 @@ export function HuddleProvider({
   // state. The worklet tracks the manual state separately so a PTT release
   // does not remute a microphone the user explicitly left open.
   React.useEffect(() => {
-    if (!ownsAudioSession || !audioTrackRef.current) return;
+    if (!ownsCapture || !audioTrackRef.current) return;
     audioTrackRef.current.enabled = !locallyMuted;
     workletRef.current?.setTransmitting(!isMuted);
-  }, [isMuted, locallyMuted, ownsAudioSession]);
+  }, [isMuted, locallyMuted, ownsCapture]);
 
   const toggleMute = React.useCallback(() => {
-    if (!ownsAudioSession) {
+    if (!ownsCapture) {
       const nextMuted = !(mirroredAudioState?.isMuted ?? false);
       setMirroredAudioState((previous) => ({
         isMuted: nextMuted,
@@ -295,12 +307,7 @@ export function HuddleProvider({
     void invoke("set_huddle_manual_mic_unmuted", {
       enabled: !requestedMuted,
     });
-  }, [
-    locallyMuted,
-    mirroredAudioState?.isMuted,
-    ownsAudioSession,
-    voiceInputMode,
-  ]);
+  }, [locallyMuted, mirroredAudioState?.isMuted, ownsCapture, voiceInputMode]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -308,7 +315,7 @@ export function HuddleProvider({
     let requestRetry: number | null = null;
 
     listen<HuddleAudioMirrorState>(HUDDLE_AUDIO_STATE_EVENT, (event) => {
-      if (!cancelled && !ownsAudioSession) {
+      if (!cancelled && !ownsCapture) {
         if (requestRetry !== null) {
           window.clearInterval(requestRetry);
           requestRetry = null;
@@ -323,7 +330,7 @@ export function HuddleProvider({
       }
       unlisten = fn;
 
-      if (!ownsAudioSession) {
+      if (!ownsCapture) {
         // Register the response listener before asking the main window for its
         // browser-owned microphone state. The prior fire-and-forget request
         // could be answered before this listener existed, leaving the room
@@ -345,10 +352,10 @@ export function HuddleProvider({
       if (requestRetry !== null) window.clearInterval(requestRetry);
       unlisten?.();
     };
-  }, [ownsAudioSession, setVoiceInputModeState]);
+  }, [ownsCapture, setVoiceInputModeState]);
 
   React.useEffect(() => {
-    if (!ownsAudioSession) return;
+    if (!ownsCapture) return;
 
     const state: HuddleAudioMirrorState = {
       isMuted: locallyMuted,
@@ -410,7 +417,7 @@ export function HuddleProvider({
     localMicGain,
     localSelectedDeviceId,
     micConnected,
-    ownsAudioSession,
+    ownsCapture,
     setLocalMicGain,
     setLocalSelectedDeviceId,
     setVoiceInputModeState,
@@ -552,6 +559,141 @@ export function HuddleProvider({
     [resetSpeakerActivity],
   );
 
+  const selectedDeviceIdRef = React.useRef(selectedDeviceId);
+  selectedDeviceIdRef.current = selectedDeviceId;
+  /** Device the live capture was opened with ("" = system default). */
+  const captureDeviceRef = React.useRef("");
+  /** Fences overlapping recoveries; bumped by every recovery start. */
+  const recoveryGenRef = React.useRef(0);
+  const recoverCaptureRef = React.useRef<() => Promise<void>>(async () => {});
+
+  /** Stop local capture without touching the huddle session. */
+  const releaseCapture = React.useCallback(() => {
+    recoveryGenRef.current += 1;
+    workletRef.current?.stop();
+    workletRef.current = null;
+    audioTrackRef.current?.stop();
+    setLocalAudioTrack(null);
+    setMicConnected(false);
+  }, []);
+
+  /**
+   * Open (or re-open) the mic for a live huddle. Bounded retries; the last
+   * failure is shown. Any newer open, release, or leave supersedes it.
+   */
+  const openCapture = React.useCallback(async () => {
+    const token = tokenRef.current;
+    const mine = ++recoveryGenRef.current;
+    const stale = () =>
+      token !== tokenRef.current || mine !== recoveryGenRef.current;
+    workletRef.current?.stop();
+    workletRef.current = null;
+    audioTrackRef.current?.stop();
+    setMicConnected(false);
+    for (const delay of [0, 1000, 2000, 4000]) {
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (stale()) return;
+      try {
+        const capture = await acquireMic({
+          deviceId: selectedDeviceIdRef.current,
+          mode: getVoiceInputMode(),
+          unmuted: !isMutedRef.current,
+          enabled: !locallyMutedRef.current,
+          gain: micGainRef.current,
+          onLost: () => void recoverCaptureRef.current(),
+        });
+        if (stale()) {
+          capture.worklet.stop();
+          for (const track of capture.stream.getTracks()) track.stop();
+          return;
+        }
+        captureDeviceRef.current = capture.deviceId;
+        workletRef.current = capture.worklet;
+        setLocalAudioTrack(capture.track);
+        setMicConnected(true);
+        return;
+      } catch (error) {
+        console.warn("[huddle-audio] mic open failed", error);
+      }
+    }
+    if (!stale()) {
+      setHuddleError(
+        "Your microphone disconnected. Pick another input to reconnect.",
+      );
+    }
+  }, [getVoiceInputMode]);
+
+  /** The live track ended underneath us, or the input changed: re-open. */
+  const recoverCapture = React.useCallback(async () => {
+    if (!ownsCapture || !workletRef.current) return;
+    await openCapture();
+  }, [openCapture, ownsCapture]);
+  recoverCaptureRef.current = recoverCapture;
+
+  // A new input applies immediately instead of on the next huddle.
+  React.useEffect(() => {
+    if (!ownsCapture || !workletRef.current) return;
+    if (captureDeviceRef.current === selectedDeviceId) return;
+    void recoverCapture();
+  }, [ownsCapture, recoverCapture, selectedDeviceId]);
+
+  const mirroredAudioStateRef = React.useRef(mirroredAudioState);
+  mirroredAudioStateRef.current = mirroredAudioState;
+  useCaptureHandover({
+    isSessionWindow: ownsAudioSession,
+    capturePreferred,
+    ownsCapture,
+    setOwnsCapture,
+    peerHasCapture: mirroredAudioState?.micConnected ?? false,
+    huddleLive: ephemeralChannelId != null,
+    release: () => {
+      // Keep showing our last state until the new owner reports its own.
+      setMirroredAudioState({
+        isMuted: locallyMutedRef.current,
+        micConnected: true,
+        audioDevices: localAudioDevices,
+        selectedDeviceId: localSelectedDeviceId,
+        micGain: localMicGain,
+        voiceInputMode,
+      });
+      releaseCapture();
+    },
+    take: () => {
+      const seed = mirroredAudioStateRef.current;
+      if (seed) {
+        setIsMuted(seed.isMuted);
+        isMutedRef.current = seed.isMuted;
+        locallyMutedRef.current = seed.isMuted;
+        setLocalSelectedDeviceId(seed.selectedDeviceId);
+        selectedDeviceIdRef.current = seed.selectedDeviceId;
+        setLocalMicGain(seed.micGain);
+        micGainRef.current = seed.micGain;
+        setVoiceInputModeState(seed.voiceInputMode);
+      }
+      void openCapture();
+    },
+  });
+
+  // A companion holding the mic lets go as soon as the huddle ends.
+  React.useEffect(() => {
+    if (ownsAudioSession || !ownsCapture) return;
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    void listen<{ phase?: string }>("huddle-state-changed", (event) => {
+      if (cancelled) return;
+      if (event.payload.phase === "idle" || event.payload.phase === "leaving") {
+        releaseCapture();
+      }
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [ownsAudioSession, ownsCapture, releaseCapture]);
+
   /** Shared media setup: get mic, setup AudioWorklet, confirm active.
    *  Used by both startHuddle and joinHuddle after the Rust backend call succeeds. */
   const connectAndSetupMedia = React.useCallback(
@@ -575,43 +717,27 @@ export function HuddleProvider({
       if (tokenRef.current !== myToken) throw new Error("superseded");
 
       // Get mic — Rust backend owns the audio WS connection.
-      // Request 48 kHz to match the Opus encoder and worklet buffer size (960 samples = 20ms).
-      const audioConstraints: MediaTrackConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        sampleRate: 48000,
-      };
-      if (selectedDeviceId) {
-        audioConstraints.deviceId = { exact: selectedDeviceId };
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
+      const capture = await acquireMic({
+        deviceId: selectedDeviceId,
+        mode: getVoiceInputMode(),
+        unmuted: !isMutedRef.current,
+        enabled: !locallyMutedRef.current,
+        gain: micGainRef.current,
+        onLost: () => void recoverCaptureRef.current(),
       });
-      const audioTrack = stream.getAudioTracks()[0];
+      const { stream, track: audioTrack, worklet } = capture;
 
       // Wrap post-getUserMedia steps so the stream is always cleaned up on
       // failure — prevents the mic permission light staying on after errors.
       try {
         if (tokenRef.current !== myToken) {
-          throw new Error("superseded");
-        }
-
-        setLocalAudioTrack(audioTrack);
-        setMicConnected(true);
-
-        // Setup AudioWorklet — PCM goes to Rust via push_audio_pcm
-        audioTrack.enabled = !locallyMutedRef.current;
-        const worklet = await setupAudioWorklet(
-          audioTrack,
-          getVoiceInputMode(),
-          !isMutedRef.current,
-        );
-        worklet.setGain(micGainRef.current);
-
-        if (tokenRef.current !== myToken) {
           worklet.stop();
           throw new Error("superseded");
         }
+
+        captureDeviceRef.current = capture.deviceId;
+        setLocalAudioTrack(audioTrack);
+        setMicConnected(true);
 
         workletRef.current = worklet;
         setEphemeralChannelId(joinInfo.ephemeral_channel_id);
@@ -796,13 +922,13 @@ export function HuddleProvider({
   const micLevel = useMicLevelAnalyser(localAudioTrack, micConnected);
 
   React.useEffect(() => {
-    if (ownsAudioSession) {
+    if (ownsCapture) {
       void emit(HUDDLE_AUDIO_LEVEL_EVENT, micLevel);
     }
-  }, [micLevel, ownsAudioSession]);
+  }, [micLevel, ownsCapture]);
 
   React.useEffect(() => {
-    if (ownsAudioSession) return;
+    if (ownsCapture) return;
     let cancelled = false;
     let unlisten: (() => void) | null = null;
     void listen<number>(HUDDLE_AUDIO_LEVEL_EVENT, (event) => {
@@ -815,7 +941,7 @@ export function HuddleProvider({
       cancelled = true;
       unlisten?.();
     };
-  }, [ownsAudioSession]);
+  }, [ownsCapture]);
 
   // Cleanup on unmount only — stable ref prevents re-firing mid-startup.
   const leaveHuddleRef = React.useRef(leaveHuddle);
@@ -887,20 +1013,14 @@ export function HuddleProvider({
   // churn re-renders only the meter components, not every useHuddle consumer.
   const levelsValue = React.useMemo<HuddleLevelsValue>(
     () => ({
-      micLevel: ownsAudioSession ? micLevel : mirroredMicLevel,
+      micLevel: ownsCapture ? micLevel : mirroredMicLevel,
       activeSpeakers,
       speakerLevels,
     }),
-    [
-      activeSpeakers,
-      micLevel,
-      mirroredMicLevel,
-      ownsAudioSession,
-      speakerLevels,
-    ],
+    [activeSpeakers, micLevel, mirroredMicLevel, ownsCapture, speakerLevels],
   );
 
-  const effectiveMicConnected = ownsAudioSession
+  const effectiveMicConnected = ownsCapture
     ? micConnected
     : (mirroredAudioState?.micConnected ?? false);
   const contextValue = React.useMemo<HuddleContextValue>(

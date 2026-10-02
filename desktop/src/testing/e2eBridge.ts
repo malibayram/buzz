@@ -12029,7 +12029,10 @@ export function maybeInstallE2eTauriMocks() {
 
     switch (command) {
       case "set_huddle_video_enabled":
+      case "set_huddle_video_handoff":
         return null;
+      case "take_huddle_video_handoff":
+        return { camera: false, screen: false };
       case "huddle_video_info": {
         const channel = mockHuddle?.state.ephemeral_channel_id;
         if (!channel) throw new Error("No active huddle.");

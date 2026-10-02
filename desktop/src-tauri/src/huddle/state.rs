@@ -93,6 +93,10 @@ pub struct HuddleState {
     /// echo, never another socket authenticated as the same bot.
     #[serde(skip)]
     pub local_tts_publishers: tts::LocalTtsPublishers,
+    /// Local video that was live when the huddle moved between windows; the
+    /// window that takes over video resumes it. Teardown clears it.
+    #[serde(skip)]
+    pub video_handoff: super::video_auth::VideoHandoff,
     /// Whether this client created the huddle (vs. joined it).
     /// Used to enforce that only the creator can end/archive the huddle.
     pub is_creator: bool,
@@ -201,6 +205,7 @@ impl Clone for HuddleState {
             remote_stt_pipeline: Arc::new(Mutex::new(None)),
             tts_pipeline: None, // Never clone the pipeline handle.
             local_tts_publishers: Arc::clone(&self.local_tts_publishers),
+            video_handoff: self.video_handoff,
             is_creator: self.is_creator,
             tts_enabled: self.tts_enabled,
             transcription_enabled: self.transcription_enabled,
@@ -238,6 +243,7 @@ impl Default for HuddleState {
             remote_stt_pipeline: Arc::new(Mutex::new(None)),
             tts_pipeline: None,
             local_tts_publishers: tts::LocalTtsPublishers::default(),
+            video_handoff: Default::default(),
             is_creator: false,
             tts_enabled: true,
             transcription_enabled: false,
@@ -361,6 +367,17 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use super::HuddleState;
+
+    #[test]
+    fn teardown_clears_the_video_handoff() {
+        let mut state = HuddleState::default();
+        state.video_handoff = super::super::video_auth::VideoHandoff {
+            camera: true,
+            screen: true,
+        };
+        state.reset_preserving_generation();
+        assert_eq!(state.video_handoff, Default::default());
+    }
 
     fn set_agents(state: &HuddleState, agents: &[&str]) {
         *state

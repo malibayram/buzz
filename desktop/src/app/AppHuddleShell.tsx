@@ -3,6 +3,7 @@ import { AppHuddleBar } from "@/app/AppHuddleBar";
 import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
 import { HuddleProvider, useHuddle } from "@/features/huddle";
 import { HuddleVideoProvider } from "@/features/huddle/video/useHuddleVideo";
+import { VideoDock } from "@/features/huddle/video/VideoDock";
 import { VideoStage } from "@/features/huddle/video/VideoStage";
 import { HUDDLE_SHORTCUT_EVENT } from "@/shared/lib/keyboard-shortcuts";
 import { RemindMeLaterProvider } from "@/features/reminders/ui/RemindMeLaterProvider";
@@ -60,6 +61,7 @@ export function AppHuddleShell({
   return (
     <HuddleProvider
       ownsAudioSession={!isRoom}
+      capturePreferred={isRoom || !isCompanionOpen}
       onHuddleStartPendingChange={
         isRoom ? undefined : onHuddleStartPendingChange
       }
@@ -95,7 +97,11 @@ export function AppHuddleShell({
             </div>
             {isRoom || !isCompanionOpen ? (
               <HuddleVideoProvider>
-                {isRoom ? <VideoStage /> : null}
+                {isRoom ? (
+                  <VideoStage />
+                ) : (
+                  <VideoDock onExpand={onCompanionOpen} />
+                )}
                 <div className="buzz-huddle-drawer-slot absolute inset-x-0 bottom-0 z-[2] h-(--buzz-huddle-drawer-height)">
                   <AppHuddleBar
                     mode={isRoom ? "room" : "main"}

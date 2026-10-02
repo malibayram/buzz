@@ -1,4 +1,12 @@
+/** Wire label for every huddle video track (H.264 Constrained Baseline). */
 export const CODEC = "avc1.42E01F";
+/** Level 4.0: what a >720p screen share needs; level 3.1 caps at 1280×720. */
+const CODEC_LEVEL_40 = "avc1.42E028";
+/**
+ * Decoders take a permissive level (5.1) because the label's level is not a
+ * promise: a screen share above 720p arrives at level 4.0.
+ */
+export const DECODER_CODEC = "avc1.42E033";
 export const TRACK_CAMERA = 0;
 export const TRACK_SCREEN = 1;
 const HEADER_LEN = 12;
@@ -102,7 +110,7 @@ export function videoErrorText(code: string): string {
     case "screen_share_busy":
       return "Someone else is sharing their screen";
     case "camera_limit":
-      return "This huddle already has 8 cameras";
+      return "This huddle already has 8 cameras on";
     case "frame_too_large":
       return "A video frame was too large";
     case "huddle_video_unavailable_on_mesh":
@@ -130,23 +138,87 @@ export function tileKey(peer: number, epoch: number, track: number): string {
   return `${peer}:${epoch}:${track}`;
 }
 
-export function cameraPublish() {
+export type LayerSpec = {
+  layer: number;
+  width: number;
+  height: number;
+  bitrate: number;
+  fps: number;
+  codec: string;
+};
+
+const even = (value: number) => Math.max(2, Math.round(value / 2) * 2);
+
+/** Scale a source to `targetHeight` (never upscaling), keeping its aspect. */
+export function scaledSize(
+  width: number,
+  height: number,
+  targetHeight: number,
+): { width: number; height: number } {
+  const h = Math.min(targetHeight, Math.max(height, 2));
   return {
-    type: "publish",
-    track: TRACK_CAMERA,
-    codec: CODEC,
-    layers: [
-      { layer: 0, w: 320, h: 180, max_kbps: 150 },
-      { layer: 1, w: 1280, h: 720, max_kbps: 1200 },
-    ],
+    width: even((h * Math.max(width, 2)) / Math.max(height, 2)),
+    height: even(h),
   };
 }
 
-export function screenPublish(width: number, height: number) {
+/** Low layer for grids, high layer for the main tile. Sized for 5–8 people. */
+export function cameraLayers(width: number, height: number): LayerSpec[] {
+  return [
+    {
+      layer: 0,
+      ...scaledSize(width, height, 240),
+      bitrate: 250_000,
+      fps: 24,
+      codec: CODEC,
+    },
+    {
+      layer: 1,
+      ...scaledSize(width, height, 720),
+      bitrate: 900_000,
+      fps: 24,
+      codec: CODEC,
+    },
+  ];
+}
+
+/** One screen layer, fit inside 1920×1080, at the lowest level that holds it. */
+export function screenLayer(width: number, height: number): LayerSpec {
+  const scale = Math.min(
+    1,
+    1920 / Math.max(width, 1),
+    1080 / Math.max(height, 1),
+  );
+  const w = even(width * scale);
+  const h = even(height * scale);
+  return {
+    layer: 0,
+    width: w,
+    height: h,
+    bitrate: 1_500_000,
+    fps: 15,
+    codec: w * h <= 1280 * 720 ? CODEC : CODEC_LEVEL_40,
+  };
+}
+
+function publishMessage(track: number, layers: LayerSpec[]) {
   return {
     type: "publish",
-    track: TRACK_SCREEN,
+    track,
     codec: CODEC,
-    layers: [{ layer: 0, w: width, h: height, max_kbps: 2500 }],
+    layers: layers.map((layer) => ({
+      layer: layer.layer,
+      w: layer.width,
+      h: layer.height,
+      max_kbps: Math.round(layer.bitrate / 1000),
+    })),
   };
+}
+
+export function cameraPublish(layers: LayerSpec[]) {
+  return publishMessage(TRACK_CAMERA, layers);
+}
+
+export function screenPublish(layer: LayerSpec) {
+  return publishMessage(TRACK_SCREEN, [layer]);
 }

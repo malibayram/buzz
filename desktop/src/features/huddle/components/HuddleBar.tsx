@@ -660,7 +660,6 @@ export function HuddleBar({
         />
 
         <div className="flex shrink-0 items-center gap-2">
-          <VideoControls />
           <MicControls
             isMuted={isMuted}
             onToggleMute={toggleMute}
@@ -674,6 +673,7 @@ export function HuddleBar({
             micGain={micGain}
             onGainChange={setMicGain}
           />
+          <VideoControls />
 
           <SpeakerControls
             ttsEnabled={ttsEnabled}
