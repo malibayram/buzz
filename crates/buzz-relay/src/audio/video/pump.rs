@@ -111,15 +111,24 @@ where
     let mut ping =
         tokio::time::interval_at(tokio::time::Instant::now() + PING_INTERVAL, PING_INTERVAL);
     ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // The terminator only exists while a NIP-FI session deadline is armed;
+    // with NIP-FI off its sender is dropped at setup. A closed channel means
+    // "no deadline", not "terminate" — treating it as the latter closed every
+    // video socket the instant it bound.
+    let mut terminator_armed = true;
     loop {
         let message = tokio::select! {
             biased;
-            frame = term_rx.recv() => {
-                if let Some(frame) = frame {
+            frame = term_rx.recv(), if terminator_armed => match frame {
+                Some(frame) => {
                     let _ = send(sink, frame).await;
+                    return PumpEnd::Terminated;
                 }
-                return PumpEnd::Terminated;
-            }
+                None => {
+                    terminator_armed = false;
+                    continue;
+                }
+            },
             ctrl = ctrl_rx.recv() => match ctrl {
                 Some(VideoCtrl::Text(text)) => Outgoing::Control(WsMessage::Text(text.into())),
                 Some(VideoCtrl::Close) | None => return PumpEnd::Replaced,

@@ -199,3 +199,46 @@ async fn a_silent_client_is_closed_after_the_idle_window() {
         .expect("pump must close a client that never answers");
     assert_eq!(end, PumpEnd::ReadIdle);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_closed_terminator_channel_does_not_end_the_socket() {
+    // With NIP-FI off the session never arms a deadline and drops the
+    // terminator's sender at setup; the socket must stay up regardless.
+    let room = room();
+    let lease = room.video.bind(1, 0, "a".into());
+    let (_uplink, mut stream) = inbound();
+    let recorder = Recorder::default();
+    let mut sink = recorder.clone();
+    let (term_tx, mut term_rx) = mpsc::channel::<WsMessage>(1);
+    drop(term_tx);
+    let cancel = CancellationToken::new();
+    let run = pump(
+        &room,
+        1,
+        0,
+        lease.generation,
+        PumpSockets {
+            sink: &mut sink,
+            stream: &mut stream,
+            media_rx: lease.media_rx,
+            ctrl_rx: lease.ctrl_rx,
+            term_rx: &mut term_rx,
+            cancel: &cancel,
+        },
+    );
+    let outcome = tokio::time::timeout(PING_INTERVAL + Duration::from_secs(1), run).await;
+    assert!(outcome.is_err(), "pump ended early: {outcome:?}");
+    let pings = recorder
+        .0
+        .lock()
+        .map(|sent| {
+            sent.iter()
+                .filter(|m| matches!(m, WsMessage::Ping(_)))
+                .count()
+        })
+        .unwrap_or(0);
+    assert_eq!(
+        pings, 1,
+        "the socket kept serving after the terminator closed"
+    );
+}
