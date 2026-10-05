@@ -122,6 +122,11 @@ impl HuddleSession {
     pub fn pubkey(&self, peer_index: u8, epoch: u8) -> Option<&str> {
         self.peers.get(&(peer_index, epoch)).map(String::as_str)
     }
+
+    /// Pubkeys of everyone currently in the room, this session included.
+    pub fn occupants(&self) -> impl Iterator<Item = &str> {
+        self.peers.values().map(String::as_str)
+    }
 }
 
 async fn next_text(

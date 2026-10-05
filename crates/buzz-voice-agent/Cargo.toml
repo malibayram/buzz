@@ -5,13 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Huddle scribe: join audio, transcribe, post a speaker-tagged transcript"
+description = "Huddle scribe: follow huddles, transcribe speech, post speaker-tagged transcripts"
 
 [[bin]]
 name = "buzz-voice-agent"
 path = "src/main.rs"
 
 [dependencies]
+buzz-core = { workspace = true }
 buzz-huddle-client = { path = "../buzz-huddle-client" }
 buzz-ws-client = { workspace = true }
 nostr = { workspace = true }

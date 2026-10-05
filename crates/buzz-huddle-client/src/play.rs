@@ -95,7 +95,7 @@ mod tests {
         assert!(!should_barge(-40, Some(&human), &"cc".repeat(32), &agents));
         assert!(!should_barge(
             -20,
-            Some(&agents.iter().next().unwrap()),
+            agents.iter().next().map(String::as_str),
             &"cc".repeat(32),
             &agents
         ));

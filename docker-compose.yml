@@ -180,13 +180,11 @@ services:
     environment:
       BUZZ_RELAY_URL: ${BUZZ_RELAY_URL:-ws://host.docker.internal:3000}
       BUZZ_PRIVATE_KEY: ${BUZZ_PRIVATE_KEY:-}
-      BUZZ_HUDDLE_CHANNEL_ID: ${BUZZ_HUDDLE_CHANNEL_ID:-}
-      BUZZ_PARENT_CHANNEL_ID: ${BUZZ_PARENT_CHANNEL_ID:-}
       BUZZ_HUDDLE_AGENTS: ${BUZZ_HUDDLE_AGENTS:-}
       VOICE_STT_URL: ${VOICE_STT_URL:-http://host.docker.internal:8080/v1/audio/transcriptions}
-      VOICE_TTS_URL: ${VOICE_TTS_URL:-http://host.docker.internal:8080/v1/audio/speech}
       VOICE_API_KEY: ${VOICE_API_KEY:-}
       VOICE_STT_MODEL: ${VOICE_STT_MODEL:-whisper-1}
+      VOICE_STT_LANGUAGE: ${VOICE_STT_LANGUAGE:-}
     networks:
       - buzz-net
     extra_hosts:

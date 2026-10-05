@@ -1605,6 +1605,7 @@ dependencies = [
 name = "buzz-voice-agent"
 version = "0.1.0"
 dependencies = [
+ "buzz-core",
  "buzz-huddle-client",
  "buzz-ws-client",
  "nostr 0.44.7",
