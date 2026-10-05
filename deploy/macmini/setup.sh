@@ -10,8 +10,6 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 COMPOSE_DIR="${REPO_ROOT}/deploy/compose"
 ENV_FILE="${COMPOSE_DIR}/.env"
 IMAGE="buzz-local:video"
-# One tunnel per machine: its credentials file lives only where it was created.
-TUNNEL_NAME="${BUZZ_TUNNEL_NAME:-buzz}"
 TUNNEL_AGENT_LABEL="com.buzz.tunnel"
 CLOUDFLARED_DIR="${HOME}/.cloudflared"
 
@@ -22,6 +20,8 @@ if [[ -f "${SCRIPT_DIR}/site.env" ]]; then
   # shellcheck disable=SC1091
   source "${SCRIPT_DIR}/site.env"
 fi
+# One tunnel per machine: its credentials file lives only where it was created.
+TUNNEL_NAME="${BUZZ_TUNNEL_NAME:-buzz}"
 
 die() {
   echo "error: $*" >&2
@@ -193,7 +193,7 @@ cmd_tunnel() {
   fi
   local tunnel_id
   tunnel_id="$(cloudflared tunnel list --output json | python3 -c \
-    "import json,sys; print(next(t['id'] for t in json.load(sys.stdin) if t['name']=='${TUNNEL_NAME}'))")"
+    "import json,sys; print(next((t['id'] for t in json.load(sys.stdin) if t['name']=='${TUNNEL_NAME}'), ''))")"
   [[ -n "${tunnel_id}" ]] || die "could not resolve tunnel id for ${TUNNEL_NAME}"
   [[ -f "${CLOUDFLARED_DIR}/${tunnel_id}.json" ]] || die "tunnel '${TUNNEL_NAME}' was created on another machine (no ${tunnel_id}.json here). Use a per-machine name, e.g.: BUZZ_TUNNEL_NAME=buzz-\$(hostname -s) $0 tunnel"
 
