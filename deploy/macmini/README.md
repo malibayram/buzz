@@ -149,8 +149,12 @@ cd ~/buzz-server/buzz/deploy/compose
 ./run.sh add-member npub1theirkey…
 ```
 
-Mobile pairs from the desktop app (QR code). The tunnel hostname is a public
-HTTPS host, so release mobile builds accept it.
+Mobile pairs from the desktop app (QR code). The tunnel routes
+`wss://<hostname>/pair` to the `pair-relay` container (loopback port 5000),
+and the relay advertises that URL in NIP-11. The tunnel hostname is a public
+HTTPS host, so release mobile builds accept it. If the desktop QR panel shows
+`WebSocket connection failed: HTTP error: 404`, the tunnel lacks the `/pair`
+route: re-run `./deploy/macmini/setup.sh tunnel`.
 
 ## Day-2 operations
 

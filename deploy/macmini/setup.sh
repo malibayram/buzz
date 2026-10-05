@@ -140,6 +140,7 @@ cmd_env() {
   set_env BUZZ_IMAGE "${IMAGE}"
   set_env BUZZ_DOMAIN "${domain}"
   set_env RELAY_URL "wss://${domain}"
+  set_env BUZZ_PAIRING_RELAY_URL "wss://${domain}/pair"
   set_env BUZZ_MEDIA_BASE_URL "https://${domain}/media"
   set_env BUZZ_MEDIA_SERVER_DOMAIN "${domain}"
   set_env BUZZ_CORS_ORIGINS "$(cors_origins "${domain}")"
@@ -204,6 +205,9 @@ cmd_tunnel() {
 tunnel: ${tunnel_id}
 credentials-file: ${CLOUDFLARED_DIR}/${tunnel_id}.json
 ingress:
+  - hostname: ${domain}
+    path: ^/pair$
+    service: http://127.0.0.1:5000
   - hostname: ${domain}
     service: http://127.0.0.1:3000
   - service: http_status:404
@@ -339,6 +343,11 @@ cmd_check() {
     -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
     -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
     --max-time 5 "https://${domain}/" || true
+  echo "• Pairing relay WebSocket upgrade at /pair (expect 101; 404 means the tunnel lacks the /pair route)"
+  curl -sS -o /dev/null -w '%{http_code}\n' --http1.1 \
+    -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+    -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+    --max-time 5 "https://${domain}/pair" || true
 }
 
 # Point the relay at a new public hostname and restart it. Only the
@@ -349,6 +358,7 @@ cmd_set_host() {
   [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; run: $0 env <owner npub>"
   set_env BUZZ_DOMAIN "${host}"
   set_env RELAY_URL "wss://${host}"
+  set_env BUZZ_PAIRING_RELAY_URL "wss://${host}/pair"
   set_env BUZZ_MEDIA_BASE_URL "https://${host}/media"
   set_env BUZZ_MEDIA_SERVER_DOMAIN "${host}"
   set_env BUZZ_CORS_ORIGINS "$(cors_origins "${host}")"

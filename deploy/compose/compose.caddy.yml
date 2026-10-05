@@ -2,6 +2,9 @@ services:
   relay:
     ports: !reset []
 
+  pair-relay:
+    ports: !reset []
+
   caddy:
     image: caddy:2-alpine
     depends_on:
