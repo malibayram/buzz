@@ -24,6 +24,8 @@ import {
   canAddChannelMembers,
   PRIVATE_CHANNEL_ADD_DENIED_MESSAGE,
 } from "@/features/channels/lib/channelMemberAdmission";
+import { rosterAddCandidatePubkeys } from "@/features/channels/lib/rosterAddCandidates";
+import { useRelayMembersQuery } from "@/features/community-members/hooks";
 import {
   useFlattenedUserSearchResults,
   useInfiniteUserSearchQuery,
@@ -52,6 +54,7 @@ import {
 } from "@/shared/ui/dialog";
 import { useProfilePanel } from "@/shared/context/ProfilePanelContext";
 import { useFeedbackToasts } from "@/shared/hooks/useToastEffect";
+import { parsePubkeyInput } from "@/shared/lib/nostrUtils";
 import { normalizePubkey, truncateNpub } from "@/shared/lib/pubkey";
 import {
   MODAL_SEARCH_INPUT_CLASS,
@@ -259,6 +262,25 @@ export function MembersSidebar({
     limit: MEMBER_ADD_RESULT_LIMIT,
   });
   const userSearchResults = useFlattenedUserSearchResults(userSearchQuery.data);
+  const relayMembersQuery = useRelayMembersQuery(open && canAddMembers);
+  const rosterCandidatePubkeys = React.useMemo(
+    () =>
+      canAddMembers
+        ? rosterAddCandidatePubkeys({
+            minQueryLength: MEMBER_SEARCH_MIN_QUERY_LENGTH,
+            query: deferredSearchQuery,
+            rosterPubkeys: (relayMembersQuery.data ?? []).map(
+              (member) => member.pubkey,
+            ),
+          })
+        : [],
+    [canAddMembers, deferredSearchQuery, relayMembersQuery.data],
+  );
+  // Key matches bypass profile search, so resolve their names separately.
+  const rosterCandidateProfilesQuery = useUsersBatchQuery(
+    rosterCandidatePubkeys,
+    { enabled: open && rosterCandidatePubkeys.length > 0 },
+  );
   const isArchivedDiscovery = useIsArchivedPredicate();
   const addSearchResults = React.useMemo(() => {
     if (!canAddMembers || normalizedDeferredSearchQuery.length === 0) {
@@ -324,6 +346,24 @@ export function MembersSidebar({
       );
     }
 
+    const rosterProfiles = rosterCandidateProfilesQuery.data?.profiles ?? {};
+    for (const pubkey of rosterCandidatePubkeys) {
+      const profile = rosterProfiles[pubkey];
+      addCandidate(
+        addMemberCandidateWithAgentMetadata(
+          {
+            pubkey,
+            displayName: profile?.displayName ?? null,
+            avatarUrl: profile?.avatarUrl ?? null,
+            nip05Handle: profile?.nip05Handle ?? null,
+            ownerPubkey: profile?.ownerPubkey ?? null,
+            isAgent: profile?.isAgent ?? false,
+          },
+          managedAgentsByPubkey,
+        ),
+      );
+    }
+
     for (const agent of relayAgentsQuery.data ?? []) {
       addCandidate({
         pubkey: agent.pubkey,
@@ -361,7 +401,10 @@ export function MembersSidebar({
       candidates: coalescedCandidates,
       getLabel: formatAddCandidateName,
       limit: Math.max(MEMBER_ADD_RESULT_LIMIT, coalescedCandidates.length),
-      query: normalizedDeferredSearchQuery,
+      // A pasted npub never matches a label or hex key, so rank by its hex.
+      query:
+        parsePubkeyInput(normalizedDeferredSearchQuery) ??
+        normalizedDeferredSearchQuery,
     });
   }, [
     canAddMembers,
@@ -372,6 +415,8 @@ export function MembersSidebar({
     memberPubkeys,
     normalizedDeferredSearchQuery,
     relayAgentsQuery.data,
+    rosterCandidateProfilesQuery.data,
+    rosterCandidatePubkeys,
     userSearchResults,
   ]);
   const isAddSearchLoading =
@@ -633,7 +678,12 @@ export function MembersSidebar({
         : undefined;
     return (
       <MembersSidebarMemberCard
-        canChangeRole={canManageMembers && member.pubkey !== currentPubkey}
+        // Community owners/admins (`canModerate`) manage roles in every
+        // channel, including their own role in channels others created.
+        canChangeRole={
+          canModerate || (canManageMembers && member.pubkey !== currentPubkey)
+        }
+        canGrantOwner={canModerate}
         canModerate={canModerate && member.pubkey !== currentPubkey}
         canRemoveMember={canRemoveMember(member)}
         isActionPending={

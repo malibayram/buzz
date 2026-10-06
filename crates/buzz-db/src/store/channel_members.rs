@@ -517,7 +517,10 @@ pub async fn add_member(
             // Any active member may extend private-channel access with an
             // ordinary role. Granting owner/admin remains reserved for an
             // existing owner/admin.
-            if role.is_elevated() && !inviter_role.is_elevated() {
+            if role.is_elevated()
+                && !inviter_role.is_elevated()
+                && !is_community_elevated_tx(&mut tx, community_id, inviter).await?
+            {
                 return Err(DbError::AccessDenied(
                     "only owners/admins may grant elevated roles".to_string(),
                 ));
@@ -533,8 +536,13 @@ pub async fn add_member(
                 Some(inv) => get_active_role_tx(&mut tx, community_id, channel_id, inv).await?,
                 None => None,
             };
+            let community_granter = match invited_by {
+                Some(inv) => is_community_elevated_tx(&mut tx, community_id, inv).await?,
+                None => false,
+            };
             match granter_role.as_deref() {
                 Some("owner") | Some("admin") => role,
+                _ if community_granter => role,
                 _ => {
                     return Err(DbError::AccessDenied(
                         "only owners/admins may grant elevated roles".to_string(),
@@ -569,7 +577,11 @@ pub async fn add_member(
             None => None,
         };
         let actor_role: Option<MemberRole> = actor_role.and_then(|r| r.parse().ok());
-        if !actor_role.is_some_and(|r| r.is_elevated()) {
+        let community_actor = match invited_by {
+            Some(inviter) => is_community_elevated_tx(&mut tx, community_id, inviter).await?,
+            None => false,
+        };
+        if !actor_role.is_some_and(|r| r.is_elevated()) && !community_actor {
             return Err(DbError::AccessDenied(
                 "only owners/admins may change an active member's role".to_string(),
             ));
@@ -1179,6 +1191,26 @@ async fn get_active_role_tx(
     .fetch_optional(&mut **tx)
     .await?;
     Ok(row.map(|r| r.try_get("role")).transpose()?)
+}
+
+/// Whether `pubkey` is an owner/admin of the community itself.
+///
+/// Community owners/admins hold channel role authority in every channel, so
+/// the elevated-granter checks in [`add_member`] accept them alongside channel
+/// owners/admins. `relay_members.pubkey` is lowercase hex text.
+async fn is_community_elevated_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    community_id: CommunityId,
+    pubkey: &[u8],
+) -> Result<bool> {
+    let role: Option<String> = sqlx::query_scalar(
+        "SELECT role FROM relay_members WHERE community_id = $1 AND pubkey = $2",
+    )
+    .bind(community_id.as_uuid())
+    .bind(hex::encode(pubkey))
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(matches!(role.as_deref(), Some("owner" | "admin")))
 }
 
 /// Transaction-aware variant of [`get_channel`].
@@ -2498,6 +2530,94 @@ mod postgres_tests {
         );
         assert_eq!(after.as_deref(), Some("owner"), "owner role must survive");
         assert_eq!(owners, 1, "channel must still have its owner");
+    }
+
+    /// A community admin who is only a plain member of someone else's private
+    /// channel may promote themselves to owner; a plain community member in
+    /// the same position may not.
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn community_admin_can_take_channel_ownership() {
+        let pool = setup_pool().await;
+        let community_id = make_test_community(&pool).await;
+        let community = CommunityId::from_uuid(community_id);
+        let creator = random_pubkey();
+        let community_admin = random_pubkey();
+        let plain = random_pubkey();
+
+        for pk in [&creator, &community_admin, &plain] {
+            ensure_user(&pool, community, pk)
+                .await
+                .expect("ensure user");
+        }
+        sqlx::query(
+            "INSERT INTO relay_members (community_id, pubkey, role) VALUES ($1, $2, 'admin')",
+        )
+        .bind(community_id)
+        .bind(hex::encode(&community_admin))
+        .execute(&pool)
+        .await
+        .expect("seed community admin");
+
+        let channel = create_test_channel(
+            &pool,
+            community_id,
+            "community-admin-takes-ownership",
+            ChannelType::Stream,
+            ChannelVisibility::Private,
+            None,
+            &creator,
+            None,
+        )
+        .await
+        .expect("create private channel");
+        for pk in [&community_admin, &plain] {
+            add_member(
+                &pool,
+                community,
+                channel.id,
+                pk,
+                MemberRole::Member,
+                Some(&creator),
+            )
+            .await
+            .expect("creator invites member");
+        }
+
+        add_member(
+            &pool,
+            community,
+            channel.id,
+            &plain,
+            MemberRole::Owner,
+            Some(&plain),
+        )
+        .await
+        .expect_err("a plain community member must not self-promote");
+
+        add_member(
+            &pool,
+            community,
+            channel.id,
+            &community_admin,
+            MemberRole::Owner,
+            Some(&community_admin),
+        )
+        .await
+        .expect("a community admin may take channel ownership");
+
+        let members = get_members(&pool, community, channel.id)
+            .await
+            .expect("members");
+        let role_of = |pk: &Vec<u8>| {
+            members
+                .iter()
+                .find(|m| &m.pubkey == pk)
+                .map(|m| m.role.clone())
+        };
+        assert_eq!(role_of(&community_admin).as_deref(), Some("owner"));
+        assert_eq!(role_of(&plain).as_deref(), Some("member"));
+        assert_eq!(role_of(&creator).as_deref(), Some("owner"));
     }
 
     /// SECURITY REPRO (Dawn): same demotion on a PRIVATE channel, where the

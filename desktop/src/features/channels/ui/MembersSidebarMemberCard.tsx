@@ -49,6 +49,8 @@ import {
 
 type MembersSidebarMemberCardProps = {
   canChangeRole: boolean;
+  /** Community owners/admins may grant channel ownership and re-role owners. */
+  canGrantOwner: boolean;
   canModerate: boolean;
   canRemoveMember: boolean;
   isActionPending: boolean;
@@ -120,6 +122,7 @@ function formatRespondToLabel(agent: ManagedAgent) {
 
 export function MembersSidebarMemberCard({
   canChangeRole,
+  canGrantOwner,
   canModerate,
   canRemoveMember,
   isActionPending,
@@ -276,6 +279,7 @@ export function MembersSidebarMemberCard({
       {hasActions ? (
         <MemberActionsMenu
           canChangeRole={canChangeRole}
+          canGrantOwner={canGrantOwner}
           canModerateMember={canModerateMember}
           canRemoveMember={canRemoveMember}
           canViewActivity={canViewActivity}
@@ -302,10 +306,12 @@ export function MembersSidebarMemberCard({
 }
 
 const PEOPLE_ROLES = ["admin", "member", "guest"] as const;
+const PEOPLE_ROLES_WITH_OWNER = ["owner", ...PEOPLE_ROLES] as const;
 
 function MemberActionsMenu({
   availability,
   canChangeRole,
+  canGrantOwner,
   canModerateMember,
   canRemoveMember,
   canViewActivity,
@@ -326,6 +332,7 @@ function MemberActionsMenu({
   pairAction,
 }: {
   canChangeRole: boolean;
+  canGrantOwner: boolean;
   availability: PresenceStatus | undefined;
   canModerateMember: boolean;
   canRemoveMember: boolean;
@@ -346,8 +353,11 @@ function MemberActionsMenu({
   onViewActivity?: (pubkey: string) => void;
   pairAction?: ManagedAgentPairAction;
 }) {
+  // Re-roling an owner needs community authority; the relay still refuses to
+  // demote a channel's last owner.
   const showChangeRole =
-    canChangeRole && !memberIsBot && member.role !== "owner";
+    canChangeRole && !memberIsBot && (canGrantOwner || member.role !== "owner");
+  const roles = canGrantOwner ? PEOPLE_ROLES_WITH_OWNER : PEOPLE_ROLES;
   const isBanned = moderationState?.banned ?? false;
   const isTimedOut = moderationState?.timedOut ?? false;
 
@@ -425,7 +435,7 @@ function MemberActionsMenu({
               Change role
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              {PEOPLE_ROLES.map((role) => (
+              {roles.map((role) => (
                 <DropdownMenuItem
                   data-testid={`sidebar-role-${role}-${member.pubkey}`}
                   disabled={disabled || member.role === role}

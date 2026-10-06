@@ -105,17 +105,25 @@ pub enum PutUserDecision {
 /// `requested_role` is `None` when the event carries no `role` tag, which
 /// means "no role change requested" rather than "demote to member".
 ///
+/// `community_elevated` is whether the actor is an owner/admin of the
+/// community itself (`relay_members`). Community owners/admins hold channel
+/// role authority in every channel they belong to, so a channel created by
+/// someone else never locks the community's own administrators out.
+///
 /// The database read for the target's agent channel-add policy stays with the
 /// caller: this returns [`PutUserDecision::CheckAddPolicy`] when that read is
 /// still required.
 pub fn decide_put_user(
     visibility: &str,
     actor_role: Option<MemberRole>,
+    community_elevated: bool,
     requested_role: Option<MemberRole>,
     members: &[MemberRecord],
     target: &[u8],
     actor: &[u8],
 ) -> Result<PutUserDecision, ChannelAuthzError> {
+    let actor_elevated = community_elevated || actor_role.is_some_and(|role| role.is_elevated());
+
     // Open channels allow any authenticated user; private channels require the
     // actor to be an existing active member. Any active member may add an
     // ordinary member, guest, or bot, but only owners/admins may grant an
@@ -125,9 +133,7 @@ pub fn decide_put_user(
             return Err(ChannelAuthzError::ActorNotAuthorized);
         }
 
-        if requested_role.is_some_and(|role| role.is_elevated())
-            && !actor_role.is_some_and(|role| role.is_elevated())
-        {
+        if requested_role.is_some_and(|role| role.is_elevated()) && !actor_elevated {
             return Err(ChannelAuthzError::ElevatedRoleGrantDenied);
         }
     }
@@ -150,7 +156,7 @@ pub fn decide_put_user(
         .zip(requested_role)
         .filter(|(m, role)| m.role != role.as_str())
     {
-        if !actor_role.is_some_and(|r| r.is_elevated()) {
+        if !actor_elevated {
             return Err(ChannelAuthzError::RoleChangeDenied);
         }
         if existing.role == "owner" && role != MemberRole::Owner && is_sole_owner(members, target) {
@@ -562,6 +568,7 @@ mod tests {
                 decide_put_user(
                     visibility,
                     *actor_role,
+                    false,
                     *requested_role,
                     &members,
                     &pk(*target),
@@ -571,6 +578,67 @@ mod tests {
                 "visibility {visibility} roster {entries:?} actor {actor} target {target} requested {requested_role:?}"
             );
         }
+    }
+
+    /// Community owners/admins hold channel role authority even when their
+    /// channel role is plain `member` — including promoting themselves to
+    /// owner of a channel someone else created. Without community standing,
+    /// the same plain member stays denied, and the last-owner guard still holds.
+    #[test]
+    fn community_elevated_put_user_table() {
+        use ChannelAuthzError as E;
+        use MemberRole::{Member, Owner};
+        use PutUserDecision::{Allow, CheckAddPolicy};
+
+        let channel = [(1, "owner"), (2, "member"), (3, "member")];
+        // (visibility, actor, community_elevated, target, requested, expected)
+        type Case<'a> = (
+            &'a str,
+            u8,
+            bool,
+            u8,
+            MemberRole,
+            Result<PutUserDecision, E>,
+        );
+        let cases: &[Case] = &[
+            ("private", 2, true, 2, Owner, Ok(Allow)),
+            ("open", 2, true, 2, Owner, Ok(Allow)),
+            ("private", 2, true, 3, Owner, Ok(CheckAddPolicy)),
+            (
+                "private",
+                2,
+                false,
+                2,
+                Owner,
+                Err(E::ElevatedRoleGrantDenied),
+            ),
+            ("open", 2, false, 2, Owner, Err(E::RoleChangeDenied)),
+            // Community authority does not bypass last-owner protection.
+            ("private", 2, true, 1, Member, Err(E::LastOwnerDemotion)),
+        ];
+
+        let members = roster(&channel);
+        for (visibility, actor, community_elevated, target, requested, expected) in cases {
+            assert_eq!(
+                decide_put_user(
+                    visibility,
+                    Some(Member),
+                    *community_elevated,
+                    Some(*requested),
+                    &members,
+                    &pk(*target),
+                    &pk(*actor),
+                ),
+                *expected,
+                "visibility {visibility} actor {actor} community {community_elevated} target {target} requested {requested:?}"
+            );
+        }
+
+        // Community standing never admits a non-member to a private channel.
+        assert_eq!(
+            decide_put_user("private", None, true, Some(Owner), &members, &pk(9), &pk(9)),
+            Err(E::ActorNotAuthorized)
+        );
     }
 
     /// The target's agent `channel_add_policy`, evaluated for a third-party

@@ -508,9 +508,17 @@ pub async fn validate_admin_event(
             // active-member role-change gate, and last-owner demotion — lives in
             // `channel_authz`, which is pure and table-tested. The database reads
             // it depends on stay here.
+            // Community owners/admins hold channel role authority everywhere
+            // (mirrors `moderation_authz`'s community-role read).
+            let community_elevated = state
+                .db
+                .get_relay_member(tenant.community(), &hex::encode(&actor_bytes))
+                .await?
+                .is_some_and(|member| member.role == "owner" || member.role == "admin");
             match channel_authz::decide_put_user(
                 &channel.visibility,
                 actor_role,
+                community_elevated,
                 requested_role,
                 &members,
                 &target_pubkey,
