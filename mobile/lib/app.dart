@@ -28,6 +28,7 @@ import 'features/channels/voice_note_recording.dart';
 import 'features/profile/user_status_cache_provider.dart';
 import 'features/profile/settings_profile_header.dart';
 import 'features/profile/profile_edit_page.dart';
+import 'features/profile/profile_provider.dart';
 import 'features/profile/profile_text_editor.dart';
 import 'features/settings/settings_page.dart';
 import 'shared/auth/auth.dart';
@@ -87,6 +88,7 @@ class MobileInviteJoinRecovery implements InviteJoinRecovery {
   })
   _createChannel;
   final Future<void> Function(String channelId) _joinChannel;
+  final Future<void> Function(String displayName) _publishDisplayName;
   final String _relayHttpOrigin;
   final bool Function() _isScopeCurrent;
 
@@ -103,13 +105,22 @@ class MobileInviteJoinRecovery implements InviteJoinRecovery {
     })
     createChannel,
     required Future<void> Function(String channelId) joinChannel,
+    required Future<void> Function(String displayName) publishDisplayName,
     required String relayHttpOrigin,
     bool Function()? isScopeCurrent,
   }) : _loadChannels = loadChannels,
        _createChannel = createChannel,
        _joinChannel = joinChannel,
+       _publishDisplayName = publishDisplayName,
        _relayHttpOrigin = relayHttpOrigin,
        _isScopeCurrent = isScopeCurrent ?? _alwaysCurrent;
+
+  @override
+  Future<void> publishDisplayName(String displayName) async {
+    _ensureScopeCurrent();
+    await _publishDisplayName(displayName);
+    _ensureScopeCurrent();
+  }
 
   /// Ensures memberships in the same public starter channels as desktop.
   ///
@@ -261,6 +272,18 @@ InviteJoinRecovery buildMobileInviteJoinRecovery(
           ttlSeconds: ttlSeconds,
         ),
     joinChannel: channelActions.joinChannel,
+    publishDisplayName: (displayName) async {
+      ensureScopeCurrent();
+      await ref
+          .read(_inviteRelayConnectedProvider(scope.relayHttpOrigin).future)
+          .timeout(const Duration(seconds: 15));
+      ensureScopeCurrent();
+      // The profile notifier refuses writes until it has loaded the current
+      // metadata, which also keeps an existing profile's other fields intact.
+      await ref.read(profileProvider.future);
+      ensureScopeCurrent();
+      await ref.read(profileProvider.notifier).updateDisplayName(displayName);
+    },
     relayHttpOrigin: scope.relayHttpOrigin,
     isScopeCurrent: isScopeCurrent,
   );

@@ -24,8 +24,14 @@ typedef InviteKeyGenerator = nostr.Keys Function();
 
 const _unset = Object();
 
-/// Ensures starter-channel memberships after an invite membership claim.
+/// Finishes community setup after an invite membership claim.
 abstract interface class InviteJoinRecovery {
+  /// Publishes the joining member's kind:0 profile with [displayName].
+  ///
+  /// Without a profile, other members only see the raw pubkey and cannot find
+  /// the newcomer in member search, so channel invites become impossible.
+  Future<void> publishDisplayName(String displayName);
+
   /// Ensures the public starters and returns the preferred focus.
   Future<String?> ensureStarterChannels();
 }
@@ -115,11 +121,16 @@ class InviteJoinNotifier extends Notifier<InviteJoinState> {
   Community? _pendingStarterSetupCommunity;
   Future<void>? _starterSetupInFlight;
 
+  /// Display name still to publish; kept until setup succeeds so a retry
+  /// republishes it instead of leaving the member nameless.
+  String? _pendingDisplayName;
+
   @override
   InviteJoinState build() => const InviteJoinState();
 
   Future<void> prepare(InviteDeepLink invite) async {
     validateInviteRelayUri(Uri.parse(invite.relayUrl));
+    _pendingDisplayName = null;
     final communities = await ref.read(communityListProvider.future);
     final existing = _existingCommunity(communities, invite.relayUrl);
     if (existing != null) {
@@ -156,7 +167,9 @@ class InviteJoinNotifier extends Notifier<InviteJoinState> {
     );
   }
 
-  Future<void> confirmJoin() async {
+  /// Claims the invite (or retries setup) and publishes [displayName] as the
+  /// new member's profile name when provided.
+  Future<void> confirmJoin({String? displayName}) async {
     final invite = state.invite;
     if (invite == null ||
         state.requiresFreshInvite ||
@@ -164,6 +177,8 @@ class InviteJoinNotifier extends Notifier<InviteJoinState> {
             state.status != InviteJoinStatus.error)) {
       return;
     }
+    final trimmedName = displayName?.trim() ?? '';
+    if (trimmedName.isNotEmpty) _pendingDisplayName = trimmedName;
 
     state = state.copyWith(
       status: InviteJoinStatus.claiming,
@@ -297,15 +312,21 @@ class InviteJoinNotifier extends Notifier<InviteJoinState> {
         baseUrl: community.relayUrl,
         nsec: community.nsec,
       );
-      final focusChannelId = await ref
-          .read(inviteJoinRecoveryProvider)(
-            InviteJoinRecoveryScope(
-              relayHttpOrigin: config.baseUrl,
-              nsec: config.nsec,
-            ),
-          )
-          .ensureStarterChannels();
+      final recovery = ref.read(inviteJoinRecoveryProvider)(
+        InviteJoinRecoveryScope(
+          relayHttpOrigin: config.baseUrl,
+          nsec: config.nsec,
+        ),
+      );
+      // Publish the profile before joining starters so the join notices
+      // already carry the member's name.
+      final displayName = _pendingDisplayName;
+      if (displayName != null) {
+        await recovery.publishDisplayName(displayName);
+      }
+      final focusChannelId = await recovery.ensureStarterChannels();
       await _saveStarterSetupState(community, incomplete: false);
+      _pendingDisplayName = null;
       state = state.copyWith(
         status: InviteJoinStatus.success,
         communityName: community.name,
@@ -344,6 +365,7 @@ class InviteJoinNotifier extends Notifier<InviteJoinState> {
 
   void reset() {
     _pendingStarterSetupCommunity = null;
+    _pendingDisplayName = null;
     state = const InviteJoinState();
   }
 }

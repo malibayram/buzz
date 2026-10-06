@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -33,7 +34,7 @@ class _InviteJoinSheetRoute extends ConsumerWidget {
   }
 }
 
-class InviteJoinSheet extends ConsumerWidget {
+class InviteJoinSheet extends HookConsumerWidget {
   const InviteJoinSheet({super.key});
 
   @override
@@ -41,6 +42,12 @@ class InviteJoinSheet extends ConsumerWidget {
     final state = ref.watch(inviteJoinProvider);
     final isClaiming = state.status == InviteJoinStatus.claiming;
     final isStarterSetupRecovery = state.isStarterSetupRecovery;
+    final nameController = useTextEditingController();
+    final displayName = useValueListenable(nameController).text.trim();
+    // A fresh join must carry a name: without a kind:0 profile the member shows
+    // up as a raw pubkey and cannot be found when adding people to channels.
+    // Setup recovery may already have published one, so the name is optional.
+    final needsDisplayName = !isStarterSetupRecovery && displayName.isEmpty;
     final host = state.host ?? 'unknown host';
     final derivedName = state.communityName;
     final primaryLabel = switch ((
@@ -122,6 +129,21 @@ class InviteJoinSheet extends ConsumerWidget {
               ),
               const SizedBox(height: Grid.sm),
             ],
+            TextField(
+              controller: nameController,
+              enabled: !isClaiming && !state.requiresFreshInvite,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.done,
+              maxLength: 64,
+              decoration: InputDecoration(
+                labelText: isStarterSetupRecovery
+                    ? 'Your name (optional)'
+                    : 'Your name',
+                helperText: 'How other members will see you',
+                counterText: '',
+              ),
+            ),
+            const SizedBox(height: Grid.sm),
             Text(
               'This phone is the only copy of this identity. If you lose it before pairing or backing up, you’ll lose access as this member.',
               style: context.textTheme.bodyMedium?.copyWith(
@@ -152,11 +174,14 @@ class InviteJoinSheet extends ConsumerWidget {
                 const SizedBox(width: Grid.sm),
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: isClaiming || state.requiresFreshInvite
+                    onPressed:
+                        isClaiming ||
+                            state.requiresFreshInvite ||
+                            needsDisplayName
                         ? null
                         : () async => ref
                               .read(inviteJoinProvider.notifier)
-                              .confirmJoin(),
+                              .confirmJoin(displayName: displayName),
                     icon: isClaiming
                         ? SizedBox(
                             width: 16,

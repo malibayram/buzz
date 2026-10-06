@@ -658,6 +658,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.enterText(find.byType(TextField), 'Ada');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Join'));
     await tester.pumpAndSettle();
     expect(find.text('Continue to #welcome-everyone'), findsOneWidget);
@@ -728,7 +730,7 @@ class _SuccessfulInviteJoinNotifier extends InviteJoinNotifier {
   }
 
   @override
-  Future<void> confirmJoin() async {
+  Future<void> confirmJoin({String? displayName}) async {
     state = state.copyWith(
       status: InviteJoinStatus.success,
       focusChannelId: 'welcome-everyone-id',
@@ -828,6 +830,9 @@ class _FakeChannelsNotifier extends ChannelsNotifier {
 class _DeferredInviteJoinRecovery implements InviteJoinRecovery {
   final Completer<String?> _result = Completer<String?>();
   final Completer<void> started = Completer<void>();
+
+  @override
+  Future<void> publishDisplayName(String displayName) async {}
 
   @override
   Future<String?> ensureStarterChannels() {

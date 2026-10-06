@@ -80,6 +80,9 @@ void main() {
 
 class _SuccessfulRecovery implements InviteJoinRecovery {
   @override
+  Future<void> publishDisplayName(String displayName) async {}
+
+  @override
   Future<String?> ensureStarterChannels() async => 'welcome';
 }
 

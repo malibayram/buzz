@@ -1,5 +1,6 @@
 import 'package:buzz/features/invites/invite_join_provider.dart';
 import 'package:buzz/features/invites/invite_join_sheet.dart';
+import 'package:buzz/shared/deeplink/deep_link.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +28,53 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'Retry setup'), findsOneWidget);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('fresh join requires a name and forwards it trimmed', (
+    tester,
+  ) async {
+    final notifier = _CapturingInviteJoinNotifier();
+    await tester.pumpWidget(
+      WidgetHelpers.testable(
+        child: const InviteJoinSheet(),
+        overrides: [inviteJoinProvider.overrideWith(() => notifier)],
+      ),
+    );
+    await tester.pump();
+
+    FilledButton joinButton() =>
+        tester.widget(find.widgetWithText(FilledButton, 'Join'));
+    expect(joinButton().onPressed, isNull);
+
+    await tester.enterText(find.byType(TextField), '   ');
+    await tester.pump();
+    expect(joinButton().onPressed, isNull);
+
+    await tester.enterText(find.byType(TextField), '  Ada  ');
+    await tester.pump();
+    expect(joinButton().onPressed, isNotNull);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Join'));
+    await tester.pump();
+    expect(notifier.confirmedNames, ['Ada']);
+  });
+
+  testWidgets('setup retry does not require a name', (tester) async {
+    await tester.pumpWidget(
+      WidgetHelpers.testable(
+        child: const InviteJoinSheet(),
+        overrides: [
+          inviteJoinProvider.overrideWith(_RecoveryErrorInviteJoinNotifier.new),
+        ],
+      ),
+    );
+    await tester.pump();
+
+    final retry = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Retry setup'),
+    );
+    expect(retry.onPressed, isNotNull);
+    expect(find.text('Your name (optional)'), findsOneWidget);
   });
 
   for (final fixture in [
@@ -104,6 +152,22 @@ class _StaticInviteJoinNotifier extends InviteJoinNotifier {
 
   @override
   InviteJoinState build() => _state;
+}
+
+class _CapturingInviteJoinNotifier extends InviteJoinNotifier {
+  final confirmedNames = <String?>[];
+
+  @override
+  InviteJoinState build() => const InviteJoinState(
+    status: InviteJoinStatus.confirming,
+    invite: InviteDeepLink(relayUrl: 'wss://relay.example.com', code: 'c'),
+    host: 'relay.example.com',
+  );
+
+  @override
+  Future<void> confirmJoin({String? displayName}) async {
+    confirmedNames.add(displayName);
+  }
 }
 
 class _RecoveryErrorInviteJoinNotifier extends InviteJoinNotifier {

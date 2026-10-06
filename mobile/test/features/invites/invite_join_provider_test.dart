@@ -226,6 +226,7 @@ void main() {
               ttlSeconds,
             }) async => throw StateError('starters already exist'),
         joinChannel: (channelId) async => joined.add(channelId),
+        publishDisplayName: (_) async {},
         relayHttpOrigin: 'https://relay.example.com',
       );
 
@@ -261,6 +262,7 @@ void main() {
               return _channel(id: channelId, name: name, isMember: true);
             },
         joinChannel: (_) async => fail('creator is already a member'),
+        publishDisplayName: (_) async {},
         relayHttpOrigin: 'https://relay.example.com/',
       );
 
@@ -312,6 +314,7 @@ void main() {
               'relay rejected event: duplicate: channel already exists',
             ),
         joinChannel: (channelId) async => joined.add(channelId),
+        publishDisplayName: (_) async {},
         relayHttpOrigin: 'https://relay.example.com',
       );
 
@@ -339,6 +342,7 @@ void main() {
             ttlSeconds,
           }) async => throw Exception('relay unavailable'),
       joinChannel: (channelId) async => joined.add(channelId),
+      publishDisplayName: (_) async {},
       relayHttpOrigin: 'https://relay.example.com',
     );
 
@@ -349,6 +353,73 @@ void main() {
 
     expect(joined, isEmpty);
   });
+
+  test(
+    'publishes the display name before starters and again on setup retry',
+    () async {
+      final calls = <String>[];
+      var failStarters = true;
+      final container = ProviderContainer(
+        overrides: [
+          communityStorageProvider.overrideWithValue(
+            CommunityStorage(secure: FakeSecureStorage()),
+          ),
+          authProvider.overrideWith(_RecordingAuthNotifier.new),
+          inviteKeyGeneratorProvider.overrideWithValue(nostr.Keys.generate),
+          inviteJoinRecoveryProvider.overrideWithValue(
+            (_) => _LoggingInviteJoinRecovery(calls, () async {
+              if (failStarters) throw Exception('relay disconnected');
+              return 'welcome-everyone-id';
+            }),
+          ),
+          inviteJoinHttpClientProvider.overrideWithValue(
+            http_testing.MockClient(
+              (request) async => http.Response(
+                jsonEncode({
+                  'status': 'joined',
+                  'host': 'relay.example.com',
+                  'role': 'member',
+                }),
+                200,
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(inviteJoinProvider.notifier);
+
+      await notifier.prepare(
+        const InviteDeepLink(relayUrl: 'wss://relay.example.com', code: 'c'),
+      );
+      await notifier.confirmJoin(displayName: '  Ada Lovelace  ');
+      expect(container.read(inviteJoinProvider).status, InviteJoinStatus.error);
+      expect(calls, ['name:Ada Lovelace', 'starters']);
+
+      // The retry has no name in hand; the pending one must still be sent so
+      // a failed first setup cannot leave the member nameless.
+      failStarters = false;
+      await notifier.confirmJoin();
+      expect(
+        container.read(inviteJoinProvider).status,
+        InviteJoinStatus.success,
+      );
+      expect(calls, [
+        'name:Ada Lovelace',
+        'starters',
+        'name:Ada Lovelace',
+        'starters',
+      ]);
+
+      // A later join without a name must not reuse the earlier one.
+      calls.clear();
+      await notifier.prepare(
+        const InviteDeepLink(relayUrl: 'wss://other.example.com', code: 'd'),
+      );
+      await notifier.confirmJoin();
+      expect(calls, ['starters']);
+    },
+  );
 
   test(
     'starter setup recovery survives dismissal and container recreation',
@@ -471,6 +542,7 @@ void main() {
             await releaseFirstJoin.future;
           }
         },
+        publishDisplayName: (_) async {},
         relayHttpOrigin: 'https://relay.example.com',
         isScopeCurrent: () => isScopeCurrent,
       );
@@ -709,9 +781,30 @@ class _FakeInviteJoinRecovery implements InviteJoinRecovery {
   const _FakeInviteJoinRecovery({this.focusChannelId, this.error});
 
   @override
+  Future<void> publishDisplayName(String displayName) async {}
+
+  @override
   Future<String?> ensureStarterChannels() async {
     if (error case final failure?) throw failure;
     return focusChannelId;
+  }
+}
+
+class _LoggingInviteJoinRecovery implements InviteJoinRecovery {
+  const _LoggingInviteJoinRecovery(this._calls, this._ensure);
+
+  final List<String> _calls;
+  final Future<String?> Function() _ensure;
+
+  @override
+  Future<void> publishDisplayName(String displayName) async {
+    _calls.add('name:$displayName');
+  }
+
+  @override
+  Future<String?> ensureStarterChannels() {
+    _calls.add('starters');
+    return _ensure();
   }
 }
 
@@ -719,6 +812,9 @@ class _RecordingInviteJoinRecovery implements InviteJoinRecovery {
   const _RecordingInviteJoinRecovery(this._ensure);
 
   final Future<String?> Function() _ensure;
+
+  @override
+  Future<void> publishDisplayName(String displayName) async {}
 
   @override
   Future<String?> ensureStarterChannels() => _ensure();
