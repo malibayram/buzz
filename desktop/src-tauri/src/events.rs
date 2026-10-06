@@ -219,6 +219,10 @@ pub fn build_delete_channel(channel_id: Uuid) -> Result<EventBuilder, String> {
 // ── Membership ───────────────────────────────────────────────────────────────
 
 /// Kind 9000 — add member.
+///
+/// `.allow_self_tagging()` is required: changing your own role (a community
+/// admin taking channel ownership) targets the signer, and nostr 0.44 drops a
+/// `p` tag naming the signer by default, so the relay would see no target.
 pub fn build_add_member(
     channel_id: Uuid,
     target_pubkey: &str,
@@ -232,7 +236,9 @@ pub fn build_add_member(
     if let Some(r) = role {
         tags.push(tag(vec!["role", r])?);
     }
-    Ok(EventBuilder::new(Kind::Custom(9000), "").tags(tags))
+    Ok(EventBuilder::new(Kind::Custom(9000), "")
+        .tags(tags)
+        .allow_self_tagging())
 }
 
 /// Kind 9001 — remove member.
@@ -862,6 +868,24 @@ mod tests {
         assert_eq!(tags[2], vec!["reason", "returned"]);
         assert_eq!(tags.len(), 3, "self unarchive must not carry auth tag");
         assert_eq!(event.pubkey.to_hex(), TARGET_HEX);
+    }
+
+    #[test]
+    fn add_member_keeps_the_signer_as_target_for_a_self_role_change() {
+        let channel = Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
+        let builder = build_add_member(channel, BOB_HEX, Some("owner")).unwrap();
+        let target_secret = nostr::SecretKey::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        )
+        .unwrap();
+        let event = builder.sign_with_keys(&Keys::new(target_secret)).unwrap();
+        let tags: Vec<Vec<String>> = event.tags.iter().map(|t| t.as_slice().to_vec()).collect();
+        assert_eq!(event.pubkey.to_hex(), BOB_HEX);
+        assert!(
+            tags.contains(&vec!["p".to_string(), BOB_HEX.to_string()]),
+            "self-targeted PUT_USER must keep its p tag: {tags:?}"
+        );
+        assert!(tags.contains(&vec!["role".to_string(), "owner".to_string()]));
     }
 
     const CH_ID: &str = "11111111-1111-4111-8111-111111111111";
