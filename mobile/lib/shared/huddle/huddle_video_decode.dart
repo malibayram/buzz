@@ -54,6 +54,7 @@ extension _HuddleVideoDecode on HuddleVideoNotifier {
     state = HuddleVideoState(
       cameraOn: state.cameraOn,
       localTextureId: state.localTextureId,
+      cameraError: state.cameraError,
       tiles: [
         for (final tile in state.tiles)
           if (tile.key == key)

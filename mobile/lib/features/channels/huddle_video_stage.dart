@@ -23,6 +23,8 @@ class HuddleVideoStage extends HookConsumerWidget {
           tile.track == HuddleVideoWire.trackCamera && tile.textureId != null,
     );
     final spotlight = screen.isEmpty ? null : screen.first;
+    final localTextureId = video.cameraOn ? video.localTextureId : null;
+    final error = video.cameraError ?? video.error;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -33,12 +35,23 @@ class HuddleVideoStage extends HookConsumerWidget {
             textureId: spotlight.textureId!,
             height: 180,
           ),
-        if (cameras.isNotEmpty)
+        if (cameras.isNotEmpty || localTextureId != null)
           SizedBox(
             height: 96,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
+                // Your own camera, mirrored like a mirror, so turning it on
+                // visibly does something even before anyone else joins.
+                if (localTextureId != null)
+                  _HuddleVideoTexture(
+                    key: const ValueKey('huddle-local-camera'),
+                    label: 'Your camera',
+                    textureId: localTextureId,
+                    height: 96,
+                    width: 54,
+                    mirrored: true,
+                  ),
                 for (final tile in cameras)
                   _HuddleVideoTexture(
                     key: ValueKey('huddle-video-tile-${tile.key}'),
@@ -50,8 +63,8 @@ class HuddleVideoStage extends HookConsumerWidget {
               ],
             ),
           ),
-        if (video.error != null)
-          Text(video.error!, key: const ValueKey('huddle-video-error')),
+        if (error != null)
+          Text(error, key: const ValueKey('huddle-video-error')),
         IconButton(
           key: const ValueKey('huddle-camera-toggle'),
           tooltip: video.cameraOn ? 'Turn camera off' : 'Turn camera on',
@@ -77,12 +90,14 @@ class _HuddleVideoTexture extends StatelessWidget {
     required this.textureId,
     required this.height,
     this.width,
+    this.mirrored = false,
   });
 
   final String label;
   final int textureId;
   final double height;
   final double? width;
+  final bool mirrored;
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +107,9 @@ class _HuddleVideoTexture extends StatelessWidget {
       child: SizedBox(
         width: width ?? double.infinity,
         height: height,
-        child: Texture(textureId: textureId),
+        child: mirrored
+            ? Transform.flip(flipX: true, child: Texture(textureId: textureId))
+            : Texture(textureId: textureId),
       ),
     );
   }

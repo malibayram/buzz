@@ -20,13 +20,19 @@ final class HuddleVideoState {
   final bool cameraOn;
   final int? localTextureId;
   final List<HuddleVideoTile> tiles;
+
+  /// The video link's error; replaced on every link update.
   final String? error;
+
+  /// Why the camera failed to start; kept until the next camera attempt.
+  final String? cameraError;
 
   const HuddleVideoState({
     this.cameraOn = false,
     this.localTextureId,
     this.tiles = const [],
     this.error,
+    this.cameraError,
   });
 
   static const idle = HuddleVideoState();

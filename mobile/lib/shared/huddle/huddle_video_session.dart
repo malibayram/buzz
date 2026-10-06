@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import 'huddle_auth.dart';
@@ -39,6 +40,7 @@ final class HuddleVideoNotifier extends Notifier<HuddleVideoState> {
   var _sequence = 0;
   var _published = false;
   var _disposed = false;
+  var _cameraBusy = false;
   HuddleVideoCodec? _codec;
   final _textures = <String, int>{};
   final _subscribed = <String>{};
@@ -76,6 +78,7 @@ final class HuddleVideoNotifier extends Notifier<HuddleVideoState> {
         localTextureId: state.localTextureId,
         tiles: _tilesFor(link.peers),
         error: link.error,
+        cameraError: state.cameraError,
       );
       _subscribe(link.peers);
     });
@@ -91,14 +94,38 @@ final class HuddleVideoNotifier extends Notifier<HuddleVideoState> {
   }
 
   Future<void> toggleCamera() async {
-    if (state.cameraOn) {
-      await _stopCamera();
-      return;
+    if (_cameraBusy) return;
+    _cameraBusy = true;
+    try {
+      if (state.cameraOn) {
+        await _stopCamera();
+      } else {
+        await _startCamera();
+      }
+    } finally {
+      _cameraBusy = false;
     }
+  }
+
+  Future<void> _startCamera() async {
     final generation = _generation;
     final codec = _codec;
     if (codec == null) return;
-    final textureId = await codec.startCamera();
+    final int textureId;
+    try {
+      textureId = await codec.startCamera();
+    } on Object catch (error) {
+      // A denied permission or busy camera must be visible: the button is
+      // the only affordance, and a silent failure reads as "does nothing".
+      if (generation == _generation && !_disposed) {
+        state = HuddleVideoState(
+          tiles: state.tiles,
+          error: state.error,
+          cameraError: _cameraErrorText(error),
+        );
+      }
+      return;
+    }
     if (generation != _generation) {
       await codec.stopCamera();
       return;
@@ -166,3 +193,8 @@ final class HuddleVideoNotifier extends Notifier<HuddleVideoState> {
     await transport?.dispose();
   }
 }
+
+String _cameraErrorText(Object error) => switch (error) {
+  PlatformException(:final message?) when message.isNotEmpty => message,
+  _ => 'The camera could not start. Try again.',
+};

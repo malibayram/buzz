@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:buzz/features/channels/huddle_video_stage.dart';
 import 'package:buzz/shared/huddle/huddle.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -38,7 +38,8 @@ void main() {
           .attach(
             HuddleConnectionParameters(
               relayWebSocketUrl: 'wss://buzz.example',
-              nsec: '09b3065e3570a3a4054660dccd66e12774a99a904fdb0ca02dbc6c3136249506',
+              nsec:
+                  '09b3065e3570a3a4054660dccd66e12774a99a904fdb0ca02dbc6c3136249506',
               parentChannelId: '11111111-2222-4333-8444-555555555555',
               ephemeralChannelId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
             ),
@@ -56,11 +57,59 @@ void main() {
 
     expect(codec.starts, 1);
     expect(find.byTooltip('Turn camera off'), findsOneWidget);
+    expect(find.byKey(const ValueKey('huddle-local-camera')), findsOneWidget);
   });
+
+  testWidgets('a camera that fails to start says why and can be retried', (
+    tester,
+  ) async {
+    final codec = _FakeCodec()
+      ..failure = PlatformException(
+        code: 'permission',
+        message: 'Camera access is off for Buzz.',
+      );
+    await _pumpStage(tester, codec);
+
+    await tester.tap(find.byKey(const ValueKey('huddle-camera-toggle')));
+    await tester.pump();
+    expect(find.text('Camera access is off for Buzz.'), findsOneWidget);
+    expect(find.byTooltip('Turn camera on'), findsOneWidget);
+    expect(find.byKey(const ValueKey('huddle-local-camera')), findsNothing);
+
+    codec.failure = null;
+    await tester.tap(find.byKey(const ValueKey('huddle-camera-toggle')));
+    await tester.pump();
+    expect(codec.starts, 2);
+    expect(find.text('Camera access is off for Buzz.'), findsNothing);
+    expect(find.byKey(const ValueKey('huddle-local-camera')), findsOneWidget);
+  });
+
+  testWidgets('a double tap starts the camera once', (tester) async {
+    final codec = _FakeCodec()..gate = Completer<void>();
+    await _pumpStage(tester, codec);
+
+    await tester.tap(find.byKey(const ValueKey('huddle-camera-toggle')));
+    await tester.tap(find.byKey(const ValueKey('huddle-camera-toggle')));
+    codec.gate!.complete();
+    await tester.pump();
+    expect(codec.starts, 1);
+    expect(find.byTooltip('Turn camera off'), findsOneWidget);
+  });
+}
+
+Future<void> _pumpStage(WidgetTester tester, _FakeCodec codec) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [huddleVideoCodecProvider.overrideWithValue(codec)],
+      child: const MaterialApp(home: Scaffold(body: HuddleVideoStage())),
+    ),
+  );
 }
 
 final class _FakeCodec implements HuddleVideoCodec {
   var starts = 0;
+  Object? failure;
+  Completer<void>? gate;
   final _frames = StreamController<HuddleEncodedCameraFrame>.broadcast();
 
   @override
@@ -69,6 +118,8 @@ final class _FakeCodec implements HuddleVideoCodec {
   @override
   Future<int> startCamera() async {
     starts += 1;
+    await gate?.future;
+    if (failure case final error?) throw error;
     return 7;
   }
 
