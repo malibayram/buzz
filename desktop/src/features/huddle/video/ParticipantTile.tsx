@@ -1,4 +1,4 @@
-import { Loader2, Pin, PinOff } from "lucide-react";
+import { Loader2, Maximize, Pin, PinOff } from "lucide-react";
 import * as React from "react";
 
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
@@ -17,6 +17,8 @@ type TileProps = {
   compact?: boolean;
   className?: string;
   style?: React.CSSProperties;
+  /** Offered on screen tiles where the stage can show one full screen. */
+  onFullscreen?: () => void;
 };
 
 function RemoteCanvas({
@@ -81,7 +83,8 @@ function tileLabel(tile: StageTile, person: StagePerson, speaking: boolean) {
 
 /**
  * One person or screen on the stage. The tile itself is a labelled group;
- * its only control is the pin button, so each action has one owner.
+ * its controls are the pin button and, for screens on the room stage, the
+ * full-screen button, so each action has one owner.
  */
 export function ParticipantTile({
   tile,
@@ -92,6 +95,7 @@ export function ParticipantTile({
   compact = false,
   className,
   style,
+  onFullscreen,
 }: TileProps) {
   const video = useHuddleVideo();
   const pinned = video.pinnedKey === tile.key;
@@ -173,6 +177,21 @@ export function ParticipantTile({
           <Pin aria-hidden="true" className="size-4" />
         )}
       </button>
+      {onFullscreen && tile.kind === "screen" ? (
+        <button
+          aria-label={`Show ${person.displayName}'s screen in full screen`}
+          className={cn(
+            "absolute inline-flex items-center justify-center rounded-md bg-black/50 text-white transition-opacity",
+            compact ? "top-1 right-8 size-6" : "top-2 right-11 size-8",
+            "opacity-0 focus-visible:opacity-100 group-hover/tile:opacity-100",
+          )}
+          data-testid="huddle-tile-fullscreen"
+          onClick={onFullscreen}
+          type="button"
+        >
+          <Maximize aria-hidden="true" className="size-4" />
+        </button>
+      ) : null}
     </div>
   );
 }

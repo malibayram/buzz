@@ -1,9 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import * as React from "react";
 
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { useFeatureEnabled } from "@/shared/features";
 import type { LinkState } from "./linkSupervisor";
 import { TRACK_SCREEN, type VideoTile } from "./protocol";
+import { nextScreenSharePin } from "./screenSharePin";
+import { useStageFullscreen } from "./useStageFullscreen";
 import { useLocalCapture } from "./videoCapture";
 import { noopVideoLink, type VideoLink } from "./videoTransport";
 import { useVideoConnection } from "./useVideoConnection";
@@ -32,6 +35,10 @@ type VideoApi = {
   toggleScreen: () => void;
   pinnedKey: string | null;
   setPinnedKey: (key: string | null) => void;
+  /** The tile shown in OS full screen, if any. */
+  fullscreenKey: string | null;
+  enterFullscreen: (key: string) => void;
+  exitFullscreen: () => void;
   layout: LayoutPreference;
   setLayout: (layout: LayoutPreference) => void;
   bindTile: (
@@ -75,18 +82,28 @@ function readLayout(): LayoutPreference {
 }
 
 /**
- * When a new screen share starts it takes the stage once; a pin the viewer
- * sets afterwards survives later roster and track changes.
+ * When a new screen share starts in a quiet huddle it takes the stage once; a
+ * share that starts while another screen is showing waits in the strip (see
+ * `nextScreenSharePin`). A pin the viewer sets survives later roster and track
+ * changes. Your own share never reaches your stage, so it is ignored here.
  */
-function useScreenSharePin(tiles: VideoTile[]) {
+function useScreenSharePin(tiles: VideoTile[], selfPubkey: string | null) {
   const [pinnedKey, setPinnedKey] = React.useState<string | null>(null);
-  const seenScreens = React.useRef(new Set<string>());
+  const seenScreens = React.useRef<string[]>([]);
   React.useEffect(() => {
-    const screens = tiles.filter((tile) => tile.track === TRACK_SCREEN);
-    const fresh = screens.some((tile) => !seenScreens.current.has(tile.key));
-    seenScreens.current = new Set(screens.map((tile) => tile.key));
-    if (fresh) setPinnedKey(null);
-  }, [tiles]);
+    const self = selfPubkey?.toLowerCase();
+    const screens = tiles
+      .filter(
+        (tile) =>
+          tile.track === TRACK_SCREEN && tile.pubkey.toLowerCase() !== self,
+      )
+      .map((tile) => tile.key);
+    const previousScreens = seenScreens.current;
+    seenScreens.current = screens;
+    setPinnedKey((current) =>
+      nextScreenSharePin({ previousScreens, screens, pinnedKey: current }),
+    );
+  }, [selfPubkey, tiles]);
   React.useEffect(() => {
     // Only a remote video tile can vanish under a pin; people and the local
     // camera stay on the stage as avatars when their video stops.
@@ -168,7 +185,12 @@ function useVideoSession(enabled: boolean): VideoApi {
     release: local.release,
     setError,
   });
-  const { pinnedKey, setPinnedKey } = useScreenSharePin(connection.tiles);
+  const identity = useIdentityQuery();
+  const { pinnedKey, setPinnedKey } = useScreenSharePin(
+    connection.tiles,
+    identity.data?.pubkey ?? null,
+  );
+  const fullscreen = useStageFullscreen(connection.tiles);
   const setLayout = React.useCallback((next: LayoutPreference) => {
     setLayoutState(next);
     try {
@@ -199,6 +221,9 @@ function useVideoSession(enabled: boolean): VideoApi {
     toggleScreen: local.toggleScreen,
     pinnedKey,
     setPinnedKey,
+    fullscreenKey: fullscreen.fullscreenKey,
+    enterFullscreen: fullscreen.enterFullscreen,
+    exitFullscreen: fullscreen.exitFullscreen,
     layout,
     setLayout,
   };

@@ -77,6 +77,7 @@ abstract final class HuddleVideoWire {
 
   static String errorText(String code) => switch (code) {
     'screen_share_busy' => 'Someone else is sharing their screen',
+    'screen_limit' => 'This huddle already has 4 screens shared',
     'camera_limit' => 'This huddle already has 8 cameras',
     'frame_too_large' => 'A video frame was too large',
     'huddle_video_unavailable_on_mesh' => 'Video is unavailable on this server',

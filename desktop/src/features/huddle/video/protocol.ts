@@ -109,6 +109,8 @@ export function videoErrorText(code: string): string {
   switch (code) {
     case "screen_share_busy":
       return "Someone else is sharing their screen";
+    case "screen_limit":
+      return "This huddle already has 4 screens shared";
     case "camera_limit":
       return "This huddle already has 8 cameras on";
     case "frame_too_large":
@@ -132,6 +134,8 @@ export type VideoTile = {
   epoch: number;
   pubkey: string;
   track: number;
+  /** Layers the publisher advertises; empty when it did not say. */
+  layers: number[];
 };
 
 export function tileKey(peer: number, epoch: number, track: number): string {

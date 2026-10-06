@@ -7,7 +7,12 @@ import {
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
-import { StageGrid, StagePresentation } from "./StageViews";
+import {
+  StageFullscreen,
+  StageGrid,
+  StagePresentation,
+  stageModelTiles,
+} from "./StageViews";
 import type { LayoutPreference } from "./useHuddleVideo";
 import { useHuddleVideo } from "./useHuddleVideo";
 import { useStageModel } from "./useStageModel";
@@ -110,7 +115,23 @@ export function VideoStage() {
   const [showTranscript, setShowTranscript] = React.useState(false);
   const [focused, setFocused] = React.useState(false);
   if (!hasVideo) return null;
-  const labels = { personFor, isSpeaking };
+  const labels = {
+    personFor,
+    isSpeaking,
+    enterFullscreen: video.enterFullscreen,
+  };
+  const fullscreenTile = video.fullscreenKey
+    ? stageModelTiles(model).find((tile) => tile.key === video.fullscreenKey)
+    : undefined;
+  if (fullscreenTile) {
+    return (
+      <StageFullscreen
+        labels={labels}
+        onExit={video.exitFullscreen}
+        tile={fullscreenTile}
+      />
+    );
+  }
   return (
     <section
       aria-label="Huddle video"

@@ -1,3 +1,4 @@
+import { Minimize } from "lucide-react";
 import * as React from "react";
 
 import { ParticipantTile } from "./ParticipantTile";
@@ -7,6 +8,8 @@ import type { StagePerson } from "./useStageRoster";
 type Labels = {
   personFor: (pubkey: string) => StagePerson;
   isSpeaking: (pubkey: string) => boolean;
+  /** Present on the room stage, which can show one screen full screen. */
+  enterFullscreen?: (key: string) => void;
 };
 
 const GAP_PX = 8;
@@ -58,6 +61,11 @@ function Tile({
       fit={fit}
       large={large}
       person={labels.personFor(tile.pubkey)}
+      onFullscreen={
+        labels.enterFullscreen
+          ? () => labels.enterFullscreen?.(tile.key)
+          : undefined
+      }
       speaking={labels.isSpeaking(tile.pubkey)}
       style={style}
       tile={tile}
@@ -137,5 +145,59 @@ export function StagePresentation({
         </ul>
       )}
     </div>
+  );
+}
+
+/** Every tile the model shows, main tile first. */
+export function stageModelTiles(model: StageModel): StageTile[] {
+  return model.mode === "grid" ? model.tiles : [model.main, ...model.strip];
+}
+
+/**
+ * One screen filling the window while it is in OS full screen. The exit
+ * button stays visible and Escape leaves too, so there is always a way back.
+ */
+export function StageFullscreen({
+  tile,
+  labels,
+  onExit,
+}: {
+  tile: StageTile;
+  labels: Labels;
+  onExit: () => void;
+}) {
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onExit();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onExit]);
+  return (
+    <section
+      aria-label="Full screen presentation"
+      className="pointer-events-auto fixed inset-0 z-50 bg-black"
+      data-testid="huddle-stage-fullscreen"
+    >
+      <Tile
+        className="absolute inset-0 rounded-none"
+        fit="contain"
+        labels={{ personFor: labels.personFor, isSpeaking: labels.isSpeaking }}
+        large
+        tile={tile}
+      />
+      <button
+        className="absolute top-3 left-3 z-10 inline-flex h-8 items-center gap-1.5 rounded-md bg-black/60 px-2.5 text-xs font-medium text-white hover:bg-black/80"
+        data-testid="huddle-exit-fullscreen"
+        onClick={onExit}
+        type="button"
+      >
+        <Minimize aria-hidden="true" className="size-4" />
+        Exit full screen
+      </button>
+    </section>
   );
 }

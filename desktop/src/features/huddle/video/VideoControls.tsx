@@ -6,13 +6,11 @@ import {
   VideoOff,
 } from "lucide-react";
 
-import { useIdentityQuery } from "@/shared/api/hooks";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { DeviceList } from "../components/MicControls";
-import { TRACK_SCREEN } from "./protocol";
 import { useHuddleVideo } from "./useHuddleVideo";
 
 const UNSUPPORTED = "Video isn't available in this app on your system";
@@ -36,15 +34,7 @@ function ControlTooltip({
 
 export function VideoControls() {
   const video = useHuddleVideo();
-  const identity = useIdentityQuery();
   if (!video.enabled) return null;
-  const self = identity.data?.pubkey?.toLowerCase();
-  const otherSharing =
-    !video.screenOn &&
-    video.tiles.some(
-      (tile) =>
-        tile.track === TRACK_SCREEN && tile.pubkey.toLowerCase() !== self,
-    );
   const cameraLabel = !video.supported
     ? UNSUPPORTED
     : video.cameraOn
@@ -54,9 +44,7 @@ export function VideoControls() {
     ? UNSUPPORTED
     : video.screenOn
       ? "Stop sharing your screen"
-      : otherSharing
-        ? "Someone else is sharing their screen"
-        : "Share your screen";
+      : "Share your screen";
   const devices = video.cameraDevices.map((device, index) => ({
     id: device.deviceId,
     label: device.label || `Camera ${index + 1}`,
@@ -122,16 +110,13 @@ export function VideoControls() {
       </Popover>
       <ControlTooltip label={screenLabel}>
         <Button
-          aria-disabled={!video.supported || otherSharing}
+          aria-disabled={!video.supported}
           aria-label={screenLabel}
           aria-pressed={video.screenOn}
-          className={cn(
-            "buzz-huddle-control-button h-12 w-12 shrink-0",
-            otherSharing && "opacity-60",
-          )}
+          className="buzz-huddle-control-button h-12 w-12 shrink-0"
           data-testid="huddle-screen-toggle"
           onClick={() => {
-            if (video.supported && !otherSharing) video.toggleScreen();
+            if (video.supported) video.toggleScreen();
           }}
           size="icon"
           variant="secondary"

@@ -1714,6 +1714,8 @@ const STARTER_WELCOME_CHANNEL_NAME = "welcome-everyone";
 // the lost flag set by `mock.identityLost`. Reset to false on each fresh page
 // load (module re-evaluation), so tests start in a clean state.
 let mockIdentityLostCleared = false;
+/** The huddle stage's full-screen view drives this through the window API. */
+let mockWindowFullscreen = false;
 // Same pattern for `mock.identityLocked`.
 let mockIdentityLockedCleared = false;
 let identityReadCount = 0;
@@ -15286,7 +15288,12 @@ export function maybeInstallE2eTauriMocks() {
       case "set_window_vibrancy":
         return null;
       case "plugin:window|is_fullscreen":
-        return false;
+        return mockWindowFullscreen;
+      case "plugin:window|set_fullscreen":
+        mockWindowFullscreen = Boolean(
+          (payload as { value?: unknown } | undefined)?.value,
+        );
+        return null;
       // Settings reads the app version through the app plugin. Without this the
       // bridge throws an unhandled page error on every Settings render, which
       // shows up as noise in unrelated specs.

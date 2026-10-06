@@ -111,7 +111,7 @@ fn keyframe_requests_are_rate_limited_per_layer() {
 }
 
 #[test]
-fn caps_allow_eight_cameras_and_one_screen() {
+fn caps_allow_eight_cameras_and_four_screens() {
     let hub = VideoHub::new();
     let screen = r#"{"type":"publish","track":1,"codec":"avc1.42E01F","layers":[{"layer":0,"w":1280,"h":720,"max_kbps":1500}]}"#;
     let mut owner = hub.bind(0, 0, "owner".into());
@@ -129,16 +129,29 @@ fn caps_allow_eight_cameras_and_one_screen() {
     assert!(texts(&mut ninth.ctrl_rx)
         .iter()
         .any(|t| t.contains("camera_limit")));
-    let mut other = hub.bind(1, 1, "other".into());
-    hub.handle_control(1, 1, other.generation, screen);
-    assert!(texts(&mut other.ctrl_rx)
+
+    // Three more peers share alongside the owner: several screens at once.
+    for lease in held.iter_mut().take(3) {
+        let _ = texts(&mut lease.ctrl_rx);
+    }
+    for (i, lease) in (1..4).zip(held.iter_mut()) {
+        hub.handle_control(i, 0, lease.generation, screen);
+        assert!(!texts(&mut lease.ctrl_rx)
+            .iter()
+            .any(|t| t.contains("\"error\"")));
+    }
+    // A fifth sharer hits the bound.
+    let mut fifth = hub.bind(9, 0, "fifth".into());
+    hub.handle_control(9, 0, fifth.generation, screen);
+    assert!(texts(&mut fifth.ctrl_rx)
         .iter()
-        .any(|t| t.contains("screen_share_busy")));
+        .any(|t| t.contains("screen_limit")));
+    // An existing sharer may still replace its own screen.
     let _ = texts(&mut owner.ctrl_rx);
     hub.handle_control(0, 0, owner.generation, screen);
     assert!(!texts(&mut owner.ctrl_rx)
         .iter()
-        .any(|t| t.contains("screen_share_busy")));
+        .any(|t| t.contains("screen_limit")));
 }
 
 #[test]

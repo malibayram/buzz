@@ -14,9 +14,13 @@ pub const VIDEO_MAX_FRAME_BYTES: usize = 512 * 1024;
 /// with huddle audio on the same downlink.
 pub const QUEUE_FRAMES: usize = 16;
 /// Per-subscriber media queue, in bytes. Must exceed `VIDEO_MAX_FRAME_BYTES`
-/// so a maximal keyframe can always be admitted to an empty queue.
-pub const QUEUE_BYTES: usize = 768 * 1024;
+/// so a maximal keyframe can always be admitted to an empty queue, and holds
+/// several so concurrent screen shares' keyframes don't evict one another.
+pub const QUEUE_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CAMERAS: usize = 8;
+/// Concurrent screen shares per huddle. Each is a full-bitrate layer-0 stream
+/// to every viewer, so the bound protects viewer downlinks.
+pub const MAX_SCREENS: usize = 4;
 pub const KEYFRAME_MIN: std::time::Duration = std::time::Duration::from_millis(500);
 pub const CTRL_CAP: usize = 32;
 pub const TRACK_CAMERA: u8 = 0;

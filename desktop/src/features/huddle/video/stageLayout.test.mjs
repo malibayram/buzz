@@ -10,12 +10,13 @@ import {
 } from "./stageLayout.ts";
 import { planSubscriptions } from "./subscriptions.ts";
 
-const cam = (pubkey, peerIndex) => ({
+const cam = (pubkey, peerIndex, layers = [0, 1]) => ({
   key: `${peerIndex}:0:0`,
   peerIndex,
   epoch: 0,
   pubkey,
   track: 0,
+  layers,
 });
 const screen = (pubkey, peerIndex) => ({
   key: `${peerIndex}:0:1`,
@@ -23,6 +24,7 @@ const screen = (pubkey, peerIndex) => ({
   epoch: 0,
   pubkey,
   track: 1,
+  layers: [0],
 });
 
 test("every participant gets one tile, self last, screens first", () => {
@@ -165,6 +167,16 @@ test("subscriptions: hidden tiles off, screens layer 0, large cameras layer 1", 
     "2:0:0": null,
     "3:0:1": 0,
   });
+});
+
+test("subscriptions: a large camera without a high layer gets layer 0", () => {
+  // Phones publish only layer 0; asking for layer 1 would show nothing.
+  const phone = cam("p", 4, [0]);
+  const plan = planSubscriptions(
+    [phone],
+    new Map([["4:0:0", { large: true }]]),
+  );
+  assert.deepEqual(Object.fromEntries(plan), { "4:0:0": 0 });
 });
 
 test("our own published tracks never become remote tiles", () => {

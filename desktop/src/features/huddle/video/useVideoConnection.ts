@@ -55,6 +55,7 @@ function mergeTiles(
       epoch: peer.epoch,
       pubkey: peer.pubkey,
       track: track.track,
+      layers: track.layers.map((layer) => layer.layer),
     })),
   );
   return [...kept, ...added];

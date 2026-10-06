@@ -183,9 +183,9 @@ test("room window: camera, presenting banner, named tiles and pinning", async ({
   await expectOnTop(page.getByTestId("huddle-presenting-banner"));
   await expect(page.getByTestId("huddle-screen-tile")).toHaveCount(0);
 
-  await video.push({ type: "error", code: "screen_share_busy" });
+  await video.push({ type: "error", code: "screen_limit" });
   await expect(page.getByTestId("huddle-video-error")).toContainText(
-    "Someone else is sharing their screen",
+    "This huddle already has 4 screens shared",
   );
   await page.getByTestId("huddle-stop-presenting").click();
   await expect(screen).toHaveAttribute("aria-pressed", "false");
@@ -222,6 +222,61 @@ test("room window: camera, presenting banner, named tiles and pinning", async ({
 
   await video.push(trackDelta(4, ALICE, [], 5));
   await expect(aliceTile).toHaveCount(0);
+});
+
+test("several screens share at once; one goes full screen and back", async ({
+  page,
+}) => {
+  await openHuddle(page, `huddle-${HUDDLE_CHANNEL_ID}`);
+  const video = fake(page);
+  await expect.poll(() => video.connects()).toBe(1);
+  const fullscreenCalls = () =>
+    page.evaluate(() =>
+      (
+        (
+          window as Window & {
+            __BUZZ_E2E_COMMAND_PAYLOADS__?: Array<{
+              command: string;
+              payload: { value?: boolean } | null;
+            }>;
+          }
+        ).__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []
+      )
+        .filter((entry) => entry.command === "plugin:window|set_fullscreen")
+        .map((entry) => entry.payload?.value),
+    );
+
+  // Alice shares first and takes the stage; Bob's later share waits in the
+  // strip instead of stealing it.
+  await video.push(trackDelta(4, ALICE, [1], 2));
+  const stage = page.getByTestId("huddle-stage-presentation");
+  const aliceScreen = stage.locator('[data-tile-key="4:1:1"]');
+  await expectOnTop(aliceScreen);
+  await video.push(trackDelta(5, BOB, [1], 3));
+  const strip = page.getByRole("list", { name: "Other participants" });
+  await expect(strip.locator('[data-tile-key="5:1:1"]')).toBeVisible();
+  await expect(aliceScreen).toHaveAttribute("aria-label", /screen/);
+  await expect(strip.locator('[data-tile-key="4:1:1"]')).toHaveCount(0);
+
+  // Full screen fills the window, and Escape leaves it.
+  await aliceScreen.hover();
+  await aliceScreen.getByTestId("huddle-tile-fullscreen").click();
+  const fullscreen = page.getByTestId("huddle-stage-fullscreen");
+  await expectOnTop(fullscreen.locator('[data-tile-key="4:1:1"]'));
+  await expect(page.getByTestId("huddle-exit-fullscreen")).toBeVisible();
+  await expect.poll(fullscreenCalls).toEqual([true]);
+  await page.keyboard.press("Escape");
+  await expect(fullscreen).toHaveCount(0);
+  await expect.poll(fullscreenCalls).toEqual([true, false]);
+
+  // Ending the share while it is full screen restores the window.
+  await aliceScreen.hover();
+  await aliceScreen.getByTestId("huddle-tile-fullscreen").click();
+  await expect(fullscreen).toBeVisible();
+  await video.push(trackDelta(4, ALICE, [], 4));
+  await expect(fullscreen).toHaveCount(0);
+  await expect.poll(fullscreenCalls).toEqual([true, false, true, false]);
+  await expectOnTop(stage.locator('[data-tile-key="5:1:1"]'));
 });
 
 test("drawer mode shows remote video in a dock", async ({ page }) => {

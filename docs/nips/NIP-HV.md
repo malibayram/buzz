@@ -48,8 +48,9 @@ unsubscribes). Relay to client: a `tracks` snapshot on bind, then
 `track_delta`, a publisher-only `keyframe_request` at least 500 ms apart per
 track and layer, and `error`.
 
-Error codes include `camera_limit` (more than 8 cameras), `screen_share_busy`
-(one screen; the same peer may replace its own), `video_requires_audio_peer`,
+Error codes include `camera_limit` (more than 8 cameras), `screen_limit`
+(more than 4 concurrent screens; a peer may replace its own), the legacy
+`screen_share_busy` (older relays allowed one screen), `video_requires_audio_peer`,
 `huddle_video_unavailable_on_mesh`, `huddle_video_unavailable`,
 `frame_too_large`, `unsupported_version`, `unsupported_codec`, and
 `invalid_publish`.

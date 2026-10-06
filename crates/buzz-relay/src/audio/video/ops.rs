@@ -4,7 +4,9 @@ use std::time::Instant;
 
 use super::hub::Inner;
 use super::msgs;
-use super::types::{Desired, TrackDesc, VideoCtrl, MAX_CAMERAS, TRACK_CAMERA, TRACK_SCREEN};
+use super::types::{
+    Desired, TrackDesc, VideoCtrl, MAX_CAMERAS, MAX_SCREENS, TRACK_CAMERA, TRACK_SCREEN,
+};
 
 impl Inner {
     pub(super) fn generation(&self, index: u8, epoch: u8) -> Option<u64> {
@@ -97,12 +99,8 @@ impl Inner {
         if track == TRACK_CAMERA && !already && self.camera_count() >= MAX_CAMERAS {
             return Err("camera_limit");
         }
-        if track == TRACK_SCREEN {
-            if let Some(holder) = self.screen_holder() {
-                if holder != (index, epoch) {
-                    return Err("screen_share_busy");
-                }
-            }
+        if track == TRACK_SCREEN && !already && self.screen_count() >= MAX_SCREENS {
+            return Err("screen_limit");
         }
         if track != TRACK_CAMERA && track != TRACK_SCREEN {
             return Err("invalid_publish");
@@ -117,10 +115,11 @@ impl Inner {
             .count()
     }
 
-    fn screen_holder(&self) -> Option<(u8, u8)> {
+    fn screen_count(&self) -> usize {
         self.people
-            .iter()
-            .find_map(|(k, o)| o.tracks.contains_key(&TRACK_SCREEN).then_some(*k))
+            .values()
+            .filter(|o| o.tracks.contains_key(&TRACK_SCREEN))
+            .count()
     }
 
     fn arm_keyframe(&mut self, index: u8, epoch: u8, track: u8) {

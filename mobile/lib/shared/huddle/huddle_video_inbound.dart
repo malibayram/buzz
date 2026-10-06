@@ -49,7 +49,8 @@ extension _HuddleVideoInbound on HuddleVideoTransport {
     final name = code is String ? code : 'error';
     if (name == 'frame_too_large' ||
         name == 'camera_limit' ||
-        name == 'screen_share_busy') {
+        name == 'screen_share_busy' ||
+        name == 'screen_limit') {
       _emit(
         HuddleVideoLinkState(
           phase: _state.phase,
