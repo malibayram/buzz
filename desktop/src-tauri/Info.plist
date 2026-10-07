@@ -3,16 +3,16 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>Buzz</string>
+    <string>MagiBuzz</string>
     <key>CFBundleName</key>
-    <string>Buzz</string>
+    <string>MagiBuzz</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Buzz needs microphone access for voice huddles and voice notes.</string>
+    <string>MagiBuzz needs microphone access for voice huddles and voice notes.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Buzz uses the camera for huddle video and animated avatars.</string>
+    <string>MagiBuzz uses the camera for huddle video and animated avatars.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Buzz uses screen capture when you share your screen in a huddle.</string>
+    <string>MagiBuzz uses screen capture when you share your screen in a huddle.</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Buzz uses your local network for optional Share Compute and local relay connections. Remote messaging does not require this access.</string>
+    <string>MagiBuzz uses your local network for optional Share Compute and local relay connections. Remote messaging does not require this access.</string>
 </dict>
 </plist>

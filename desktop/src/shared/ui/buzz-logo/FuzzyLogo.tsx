@@ -1,55 +1,36 @@
 import { cn } from "@/shared/lib/cn";
-import BuzzLogoAnimation, {
-  type BuzzLogoAnimationProps,
-} from "./BuzzLogoAnimation";
+import "./buzz-logo-animation.css";
 
 export type FuzzyLogoProps = {
-  /** When false, skips the looping feTurbulence texture filter and uses a CSS pulse instead. */
+  /** Kept for call-site compatibility; the MagiBuzz mark has no texture pass. */
   fuzz?: boolean;
   className?: string;
   ariaLabel?: string;
+  /** Kept for call-site compatibility; the pulse already loops. */
   loop?: boolean;
-  /** When looping, hide the mark for this many seconds between plays. */
+  /** Kept for call-site compatibility; the pulse already loops. */
   loopRestSeconds?: number;
   /** Set false when a parent drives its own opacity animation over the mark. */
   pulse?: boolean;
-  reverse?: boolean;
-  variant?: BuzzLogoAnimationProps["variant"];
 };
 
-/**
- * The fuzzy Buzz mark. v8 ships a built-in animated texture (looping fractal-noise
- * turbulence + grain) applied via an SVG filter. Set `fuzz={false}` to render the
- * crisp geometry with a lightweight CSS pulse — recommended for long-lived mounts.
- */
+/** The MagiBuzz mark with an optional opacity pulse for liveness indicators. */
 export function FuzzyLogo({
-  fuzz = true,
   className,
-  ariaLabel = "Buzz logo",
-  loop = false,
-  loopRestSeconds = 0,
+  ariaLabel = "MagiBuzz logo",
   pulse = true,
-  reverse = false,
-  variant = "v8",
 }: FuzzyLogoProps) {
-  // The rest-window loop already reads as "alive"; skip the pulse so the two
-  // opacity animations don't fight.
-  const hasRestWindow = loop && loopRestSeconds > 0;
-
   return (
-    <BuzzLogoAnimation
-      ariaLabel={ariaLabel}
-      className={cn(
-        pulse && !fuzz && !hasRestWindow && "buzz-logo--pulse",
-        className,
-      )}
-      fullScreen={false}
-      loop={loop}
-      loopRestSeconds={loopRestSeconds}
-      reverse={reverse}
-      showBackground={false}
-      textured={fuzz}
-      variant={variant}
-    />
+    <span
+      className={cn("buzz-logo w-6", pulse && "buzz-logo--pulse", className)}
+    >
+      <img
+        alt={ariaLabel}
+        aria-hidden={ariaLabel ? undefined : true}
+        className="buzz-logo__mark h-auto w-full"
+        draggable={false}
+        src="/buzz.svg"
+      />
+    </span>
   );
 }
